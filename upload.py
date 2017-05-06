@@ -69,6 +69,11 @@ if 0 == len(logger.handlers):
 pattern = re.compile("^(\d\d\d\d-\d\d-\d\d\s+\d\d:\d\d:\d\d,\d+)\s+([^\s]+\(.*\))\s+([^\s]+)\s+([^\s]+)\s+([^\s]+\.py)\s+(.*)$")
 file_data_pattern = re.compile("^(.+)_(.+)\.log$")
 project_finished_pattern = re.compile("^project_finished: <class 'iaclient.Finished'>\((.*)\)$")
+identify_album_finished_pattern = re.compile("^identify_album_finished: <class 'iaclient.Finished'>\((.*)\)$")
+log_file_name_pattern = re.compile("\<.*\>(.*\.log)\</a\>")
+
+cddb_prefix = "CDDB disc id: "
+musicbrainz_prefix = "MusicBrainz disc id "
 
 # add_metadata addes information from the line to metadata fields, which will be written to ES
 def add_metadata(groups, metadata):
@@ -76,28 +81,44 @@ def add_metadata(groups, metadata):
     if groups[5].startswith("OPERATOR: "):
         metadata['operator'] = groups[5][len("OPERATOR: "):]
         return
+
     if groups[2] == "ERROR":
         metadata['error'] = True
         return
-    if groups[5].startswith("project_finished:"):
-        match = re.search(project_finished_pattern, groups[5])
-        if match:
-            finished_data = eval(match.groups()[0])
-            metadata['status'] = finished_data['status']
-            if 'ok' == finished_data['status']:
-                result = finished_data['result'][1]
-                metadata['itemid'] = result['itemid']
-                metadata['url'] = "https://archive.org/metadata/" + result['itemid']
-                metadata['title'] = result['title']
-                metadata['artists'] = result['artists']
+    
+    match = re.search(identify_album_finished_pattern, groups[5])
+    if match:
+        metadata['identify'] = match.groups()[0]
         return
+
+    match = re.search(project_finished_pattern, groups[5])
+    if match:
+        finished_data = eval(match.groups()[0])
+        metadata['status'] = finished_data['status']
+        if 'ok' == finished_data['status']:
+            result = finished_data['result'][1]
+            metadata['itemid'] = result['itemid']
+            metadata['url'] = "https://archive.org/metadata/" + result['itemid']
+            metadata['title'] = result['title']
+            metadata['artists'] = result['artists']
+        elif 'error' == finished_data['status']:
+            metadata['error'] = finished_data['error']
+        return
+    
+    if groups[5].startswith(cddb_prefix):
+        metadata['CDDBid'] = groups[5][len(cddb_prefix):-1]
+        return
+    
+    if groups[5].startswith(musicbrainz_prefix):
+        metadata['MusicBrainzid'] = groups[5][len(musicbrainz_prefix):-1]
+        return
+    
+
+                                   
     
             
     
-def process(match):
-    logger.debug("Found match")
-
-def upload(file_name, data=None):
+def upload(file_name, data=None, length=-1):
     index = Config.get('es', 'index')
     items = []
     match = re.search(file_data_pattern, file_name)
@@ -112,17 +133,25 @@ def upload(file_name, data=None):
         logger.info("already loaded '%s', skipping", file_name)
         return
 
-    metadata = {'_type' : 'project', '_index' : index, '@timestamp' : file_dt, 'mac_id' : uploader_mac_address, 'log_file_name': file_name}
     logger.debug("reading data from %s", file_name)
     i = 0
     if not data:
         data = open(file_name).read()
+        length = len(data)
+
+    metadata = {'_type' : 'project', '_index' : index, '@timestamp' : file_dt, 'mac_id' : uploader_mac_address, 'log_file_name': file_name, 'log_length': length,
+                'CDDBid' : 'unknown', 'MusicBrainzid' : 'unknown', 'elapsed_time' : 0, 'identify' : 'unknown'}
+
+    start_time = None
     for line in data.split('\n'):
         logger.debug("processing line %d", i)
         match = re.search(pattern, line)
         if match:
             groups = match.groups()
-            items.append({'_type': 'log_line', '_index' : index, '@timestamp': parser.parse(groups[0]),
+            timestamp = parser.parse(groups[0])
+            if None == start_time:
+                start_time = timestamp
+            items.append({'_type': 'log_line', '_index' : index, '@timestamp': timestamp,
                           'thread' : groups[1], 'log_level' : groups[2], 'module' : groups[3],
                           'file' : groups[4], 'message' : groups[5], 'line' : i,
                           'log_file_name' : file_name})
@@ -132,6 +161,8 @@ def upload(file_name, data=None):
             items[-1]['message'] += line
             logger.debug("continuation from line %d", items[-1]['line'])
         i += 1
+
+    metadata['elapsed_time'] = (timestamp - start_time).seconds
     logger.debug("done reading data from %s", file_name)
     items.append(metadata)
     logger.debug("bulk upload of %d items", len(items))
@@ -141,16 +172,31 @@ def upload(file_name, data=None):
 
 
 
+
 def read_files(prefix, log_file_names):
     for line in open(log_file_names).read().splitlines():
         logger.debug("downloading and processing '%s'", line)
         response = urllib2.urlopen(prefix + line)
+        content_length = result.headers['content-length']
+        urldata = urlparse(line)
         try:
-            upload(line, response.read())
+            upload(line, response.read(), content_length)
         except:
             traceback.print_exc()
             pdb.set_trace()
-            
+
+def process_all_logs(prefix):
+    data = urllib2.urlopen(prefix).read()
+    for log_file_name in log_file_name_pattern.findall(data):
+        url = prefix + log_file_name
+        logger.debug("downloading and processing '%s'", url)
+        response = urllib2.urlopen(url)
+        try:
+            upload(log_file_name, response.read(), response.headers['content-length'])
+        except:
+            traceback.print_exc()
+            pdb.set_trace()
+
     
 
 
