@@ -187,18 +187,27 @@ def read_files(prefix, log_file_names):
 
 def process_all_logs(prefix):
     data = urllib2.urlopen(prefix).read()
+    scroll = helpers.scan(es, index = "archivecd-2017.05.06", doc_type="project", scroll='5m')
+    log_file_names = []
+    for res in scroll:
+        log_file_names.append(res['_source']['log_file_name'])
     for log_file_name in log_file_name_pattern.findall(data):
         url = prefix + log_file_name
-        logger.debug("downloading and processing '%s'", url)
-        response = urllib2.urlopen(url)
-        try:
-            upload(log_file_name, response.read(), response.headers['content-length'])
-        except:
-            traceback.print_exc()
-            pdb.set_trace()
+        if (log_file_names.index(log_file_name)):
+            logger.debug("skipping  '%s', already in index", url)
+        else:
+            logger.debug("downloading and processing '%s'", url)
+            response = urllib2.urlopen(url)
+            try:
+                upload(log_file_name, response.read(), response.headers['content-length'])
+            except:
+                traceback.print_exc()
+                pdb.set_trace()
 
     
 
 
+
+    
 
     
