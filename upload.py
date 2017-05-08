@@ -193,7 +193,7 @@ def process_all_logs(prefix):
         log_file_names.append(res['_source']['log_file_name'])
     for log_file_name in log_file_name_pattern.findall(data):
         url = prefix + log_file_name
-        if (log_file_names.index(log_file_name)):
+        if log_file_name in log_file_names:
             logger.debug("skipping  '%s', already in index", url)
         else:
             logger.debug("downloading and processing '%s'", url)
