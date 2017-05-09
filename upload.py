@@ -1,17 +1,59 @@
+# UUID is needed for eval some of the JSON from the archivecd log
 from uuid import UUID
-import re
+
+import fcntl
 import logging
 import ConfigParser
+import re
 import sys
+import os
 import pdb
 from dateutil import parser
 import urllib2
 import traceback
 import json
+import time
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 
-Config = ConfigParser.ConfigParser()
-Config.read("config.txt")
+# read from same directory as this
+base_name = os.path.dirname(sys.argv[0])
+if '' == base_name:
+    config_path = "."
+else:
+    config_path = base_name
+Config = ConfigParser.SafeConfigParser()
+
+config_file_name = config_path + "/config.txt"
+if 0 == len(Config.read(config_file_name)):
+    sys.stderr.write("Could not find config file: '%s'\n" % config_file_name)
+    sys.exit(-1)
+    
+log_levels = {"CRITICAL":logging.CRITICAL,"ERROR":logging.ERROR,"WARNING":logging.WARNING,"INFO":logging.INFO,"DEBUG":logging.DEBUG,"NOTSET":logging.NOTSET}
+
+logger = logging.getLogger(__name__)
+logger.setLevel(log_levels[Config.get('logging', 'level')])
+
+# create console handler and set level to debug
+ch = logging.StreamHandler()
+
+# create formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# add formatter to ch
+ch.setFormatter(formatter)
+
+# add ch to logger
+if 0 == len(logger.handlers):
+    logger.addHandler(ch)
+
+
+# we want to exit if another upload process is running
+lock_fd = open(config_path + "/lockfile", 'w+')
+try:
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except IOError as e:
+    logger.warning("Another Uploader is already running")
+    sys.exit(0)
 
 # see https://github.com/elastic/elasticsearch-py/issues/374
 class JSONSerializerPython2(serializer.JSONSerializer):
@@ -47,21 +89,8 @@ if use_es:
     
 
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
-# create console handler and set level to debug
-ch = logging.StreamHandler()
 
-# create formatter
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-# add formatter to ch
-ch.setFormatter(formatter)
-
-# add ch to logger
-if 0 == len(logger.handlers):
-    logger.addHandler(ch)
 
 
 
@@ -175,7 +204,7 @@ def upload(file_name, data=None, length=-1):
 
 def read_files(prefix, log_file_names):
     for line in open(log_file_names).read().splitlines():
-        logger.debug("downloading and processing '%s'", line)
+        logger.info("downloading and processing '%s'", line)
         response = urllib2.urlopen(prefix + line)
         content_length = result.headers['content-length']
         urldata = urlparse(line)
@@ -201,8 +230,8 @@ def process_all_logs(prefix):
             try:
                 upload(log_file_name, response.read(), response.headers['content-length'])
             except:
-                traceback.print_exc()
-                pdb.set_trace()
+                logger.error("Unexpected error, while uploading '%s'", url)
+                raise
 
     
 
@@ -210,4 +239,7 @@ def process_all_logs(prefix):
 
     
 
+# run that sucker    
+if __name__ == "__main__":
+    process_all_logs(sys.argv[1])
     
