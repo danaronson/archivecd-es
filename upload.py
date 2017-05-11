@@ -216,7 +216,7 @@ def read_files(prefix, log_file_names):
 
 def process_all_logs(prefix):
     data = urllib2.urlopen(prefix).read()
-    scroll = helpers.scan(es, index = "archivecd-2017.05.06", doc_type="project", scroll='5m')
+    scroll = helpers.scan(es, index = Config.get('es', 'index'), doc_type="project", scroll='5m')
     log_file_names = []
     for res in scroll:
         log_file_names.append(res['_source']['log_file_name'])
