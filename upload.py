@@ -36,6 +36,13 @@ logger.setLevel(log_levels[Config.get('logging', 'level')])
 # create console handler and set level to debug
 ch = logging.StreamHandler()
 
+# create console handler and set level to debug
+logging_file = Config.get('logging', 'file')
+if 'stdout' == logging_file:
+    ch = logging.StreamHandler()
+else:
+    ch = logging.FileHandler(logging_file)
+
 # create formatter
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
