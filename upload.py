@@ -107,7 +107,7 @@ file_data_pattern = re.compile("^(.+)_(.+)\.log$")
 project_finished_pattern = re.compile("^project_finished: <class 'iaclient.Finished'>\((.*)\)$")
 identify_album_finished_pattern = re.compile("^identify_album_finished: <class 'iaclient.Finished'>\((.*)\)$")
 log_file_name_pattern = re.compile("\<.*\>(.*\.log)\</a\>")
-saved_to_pattern = re.compile('^.*Saved to (.*)$')
+rename_scan_pattern = re.compile('^.*rename_scan.*\sto\s*(.*)$')
 
 cddb_prefix = "CDDB disc id: "
 musicbrainz_prefix = "MusicBrainz disc id "
@@ -123,7 +123,7 @@ def add_metadata(groups, metadata, png_files):
         metadata['error'] = True
         return
     
-    match = re.search(saved_to_pattern, groups[5])
+    match = re.search(rename_scan_pattern, message)
     if match:
         png_files.add(match.group(1))
 
