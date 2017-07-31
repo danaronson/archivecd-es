@@ -99,7 +99,7 @@ if use_es:
 
 
 
-
+debugging = ('True' == Config.get('es', 'debug'))
 
 # the default line pattern for archivecd log lines
 pattern = re.compile("^(\d\d\d\d-\d\d-\d\d\s+\d\d:\d\d:\d\d,\d+)\s+([^\s]+\(.*\))\s+([^\s]+)\s+([^\s]+)\s+([^\s]+\.py)\s+(.*)$")
@@ -107,12 +107,13 @@ file_data_pattern = re.compile("^(.+)_(.+)\.log$")
 project_finished_pattern = re.compile("^project_finished: <class 'iaclient.Finished'>\((.*)\)$")
 identify_album_finished_pattern = re.compile("^identify_album_finished: <class 'iaclient.Finished'>\((.*)\)$")
 log_file_name_pattern = re.compile("\<.*\>(.*\.log)\</a\>")
+saved_to_pattern = re.compile('^.*Saved to (.*)$')
 
 cddb_prefix = "CDDB disc id: "
 musicbrainz_prefix = "MusicBrainz disc id "
 
 # add_metadata addes information from the line to metadata fields, which will be written to ES
-def add_metadata(groups, metadata):
+def add_metadata(groups, metadata, png_files):
     # add the operator
     if groups[5].startswith("OPERATOR: "):
         metadata['operator'] = groups[5][len("OPERATOR: "):]
@@ -122,6 +123,10 @@ def add_metadata(groups, metadata):
         metadata['error'] = True
         return
     
+    match = re.search(saved_to_pattern, groups[5])
+    if match:
+        png_files.add(match.group(1))
+
     match = re.search(identify_album_finished_pattern, groups[5])
     if match:
         metadata['identify'] = match.groups()[0]
@@ -161,13 +166,14 @@ def upload(file_name, data=None, length=-1):
     (file_time_stamp, uploader_mac_address) = match.groups()
     file_dt = parser.parse(file_time_stamp)
 
-    # we skip this if it is already in es
-    res = es.search(index=index, body={"query":{"bool":{"must":[{"match":{"@timestamp":file_dt}},
+    # we skip this if it is already in es (unless we are debugging, then we aren't going to upload anyway)
+    if not debugging:
+        res = es.search(index=index, body={"query":{"bool":{"must":[{"match":{"@timestamp":file_dt}},
                                                                 {"match":{"mac_id":uploader_mac_address}}]}}})
 
-    if (0 != len(res['hits']['hits'])):
-        logger.info("already loaded '%s', skipping", file_name)
-        return
+        if (0 != len(res['hits']['hits'])):
+            logger.info("already loaded '%s', skipping", file_name)
+            return
 
     logger.debug("reading data from %s", file_name)
     i = 0
@@ -178,6 +184,7 @@ def upload(file_name, data=None, length=-1):
     metadata = {'_type' : 'project', '_index' : index, '@timestamp' : file_dt, 'mac_id' : uploader_mac_address, 'log_file_name': file_name, 'log_length': length,
                 'CDDBid' : 'unknown', 'MusicBrainzid' : 'unknown', 'elapsed_time' : 0, 'identify' : 'unknown'}
 
+    png_files = set()
     start_time = None
     for line in data.split('\n'):
         logger.debug("processing line %d", i)
@@ -191,7 +198,7 @@ def upload(file_name, data=None, length=-1):
                           'thread' : groups[1], 'log_level' : groups[2], 'module' : groups[3],
                           'file' : groups[4], 'message' : groups[5], 'line' : i,
                           'log_file_name' : file_name})
-            add_metadata(groups, metadata)
+            add_metadata(groups, metadata, png_files)
         else:
             # if a line doesn't parse correctly then we assume that it is a text continuation of the message from the previous line
             items[-1]['message'] += line
@@ -199,11 +206,12 @@ def upload(file_name, data=None, length=-1):
         i += 1
 
     metadata['elapsed_time'] = (timestamp - start_time).seconds
+    metadata['image_count'] = len(png_files)
     logger.debug("done reading data from %s", file_name)
     items.append(metadata)
     logger.debug("bulk upload of %d items", len(items))
-    helpers.bulk(es, items)
-        
+    if not debugging:
+        helpers.bulk(es, items)
     logger.debug("done with bulk upload of %d items", len(items))
 
 
@@ -213,20 +221,22 @@ def read_files(prefix, log_file_names):
     for line in open(log_file_names).read().splitlines():
         logger.info("downloading and processing '%s'", line)
         response = urllib2.urlopen(prefix + line)
-        content_length = result.headers['content-length']
-        urldata = urlparse(line)
+        content_length = response.headers['content-length']
         try:
             upload(line, response.read(), content_length)
         except:
             traceback.print_exc()
-            pdb.set_trace()
 
 def process_all_logs(prefix):
     data = urllib2.urlopen(prefix).read()
-    scroll = helpers.scan(es, index = Config.get('es', 'index'), doc_type="project", scroll='5m')
     log_file_names = []
+    scroll = []
+    if not debugging:
+        scroll = helpers.scan(es, index = Config.get('es', 'index'), doc_type="project", scroll='5m')
+        
     for res in scroll:
         log_file_names.append(res['_source']['log_file_name'])
+
     for log_file_name in log_file_name_pattern.findall(data):
         url = prefix + log_file_name
         if log_file_name in log_file_names:
