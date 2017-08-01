@@ -123,7 +123,7 @@ def add_metadata(groups, metadata, png_files):
         metadata['error'] = True
         return
     
-    match = re.search(rename_scan_pattern, message)
+    match = re.search(rename_scan_pattern, groups[5])
     if match:
         png_files.add(match.group(1))
 
