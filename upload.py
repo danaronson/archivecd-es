@@ -116,7 +116,7 @@ musicbrainz_prefix = "MusicBrainz disc id "
 def add_metadata(groups, metadata, png_files):
     # add the operator
     if groups[5].startswith("OPERATOR: "):
-        metadata['operator'] = groups[5][len("OPERATOR: "):]
+        metadata['operator'] = groups[5][len("OPERATOR: "):].lower()
         return
 
     if groups[2] == "ERROR":
