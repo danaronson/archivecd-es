@@ -13,6 +13,7 @@ import urllib2
 import traceback
 import json
 import time
+from internetarchive import get_item
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 
 # read from same directory as this
@@ -81,25 +82,17 @@ class JSONSerializerPython2(serializer.JSONSerializer):
 
 
 
-# if we should use elasticsearch then import and create the variable
-use_es = Config.has_section('es') and Config.get('es','use_es') and ('True' == Config.get('es', 'use_es'))
-if use_es:
-
-    if Config.get('es','user'):
-        es = Elasticsearch([Config.get('es', 'host')], http_auth=(Config.get('es', 'user'), Config.get('es', 'password')),
-                       port=int(Config.get('es', 'port')), use_ssl=('True' == Config.get('es','use_ssl')),
-                       url_prefix = Config.get('es', 'url_prefix'), serializer=JSONSerializerPython2())
-    else:
-        es = Elasticsearch([Config.get('es', 'host')], 
-                       port=int(Config.get('es', 'port')), use_ssl=('True' == Config.get('es','use_ssl')),
-                       url_prefix = Config.get('es', 'url_prefix'), serializer=JSONSerializerPython2())
+def get_es():
+    return Elasticsearch([Config.get('es', 'host')], 
+                         port=int(Config.get('es', 'port')), use_ssl=('True' == Config.get('es','use_ssl')),
+                         url_prefix = Config.get('es', 'url_prefix'), serializer=JSONSerializerPython2())
     
 
 
 
 
 
-debugging = ('True' == Config.get('es', 'debug'))
+debugging = ('True' == Config.get('default', 'debug'))
 
 # the default line pattern for archivecd log lines
 pattern = re.compile("^(\d\d\d\d-\d\d-\d\d\s+\d\d:\d\d:\d\d,\d+)\s+([^\s]+\(.*\))\s+([^\s]+)\s+([^\s]+)\s+([^\s]+\.py)\s+(.*)$")
@@ -159,7 +152,7 @@ def add_metadata(groups, metadata, png_files):
     
             
     
-def upload(file_name, data=None, length=-1):
+def upload(es, file_name, data=None, length=-1):
     index = Config.get('es', 'index')
     items = []
     match = re.search(file_data_pattern, file_name)
@@ -217,17 +210,7 @@ def upload(file_name, data=None, length=-1):
 
 
 
-def read_files(prefix, log_file_names):
-    for line in open(log_file_names).read().splitlines():
-        logger.info("downloading and processing '%s'", line)
-        response = urllib2.urlopen(prefix + line)
-        content_length = response.headers['content-length']
-        try:
-            upload(line, response.read(), content_length)
-        except:
-            traceback.print_exc()
-
-def process_all_logs(prefix):
+def process_all_logs(prefix, es):
     data = urllib2.urlopen(prefix).read()
     log_file_names = []
     scroll = []
@@ -245,18 +228,39 @@ def process_all_logs(prefix):
             logger.debug("downloading and processing '%s'", url)
             response = urllib2.urlopen(url)
             try:
-                upload(log_file_name, response.read(), response.headers['content-length'])
+                upload(es, log_file_name, response.read(), response.headers['content-length'])
             except:
                 logger.error("Unexpected error, while uploading '%s'", url)
                 raise
 
     
 
+def update_deriving(es):
+    logger.debug("looking for deriving entries")
+    query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": "_type:project AND status:deriving"}}]}}}
+    results = es.search(index='archivecd-2017.05.06', body=query,size=10000)
+    items = []
+    for res in results['hits']['hits']:
+        doc = res['_source']
+        identifier = doc['itemid']
+        files = get_item(identifier).files
+        if 'stub.txt' not in map(lambda i: i['name'], files):
+            logger.debug("updated '%s' to finished" % identifier)
+            doc['status'] = 'finished'
+            items.append({'_type':res['_type'],'_index':res['_index'],'_id':res['_id'],'_op_type':'update','doc':doc})
+    if not debugging:
+        helpers.bulk(es, items)
+    logger.debug("found %d deriving entries, %d of them have finished" % (results['hits']['total'], len(items)))
 
 
-    
+
 
 # run that sucker    
 if __name__ == "__main__":
-    process_all_logs(sys.argv[1])
-    
+    # we fork with one the parent processing the log files and the child updating the derived entires
+    if 0 == os.fork():
+        update_deriving(get_es())
+    else:
+        process_all_logs(sys.argv[1], get_es())
+        os.wait()
+
