@@ -135,6 +135,7 @@ def add_metadata(groups, metadata, png_files):
             metadata['url'] = "https://archive.org/metadata/" + result['itemid']
             metadata['title'] = result['title']
             metadata['artists'] = result['artists']
+            metadata['status'] = 'scanned'
         elif 'error' == finished_data['status']:
             metadata['error'] = finished_data['error']
         return
@@ -236,21 +237,36 @@ def process_all_logs(prefix, es):
     
 
 def update_deriving(es):
-    logger.debug("looking for deriving entries")
-    query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": "_type:project AND status:deriving"}}]}}}
+    logger.debug("looking for 'deriving' or 'scanned' entries")
+    query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": "_type:project AND (status:deriving OR status:scanned)"}}]}}}
     results = es.search(index='archivecd-2017.05.06', body=query,size=10000)
     items = []
+    deriving = 0
+    finished = 0
     for res in results['hits']['hits']:
         doc = res['_source']
         identifier = doc['itemid']
-        files = get_item(identifier).files
-        if 'stub.txt' not in map(lambda i: i['name'], files):
-            logger.debug("updated '%s' to finished" % identifier)
-            doc['status'] = 'finished'
-            items.append({'_type':res['_type'],'_index':res['_index'],'_id':res['_id'],'_op_type':'update','doc':doc})
+        metadata = get_item(identifier).metadata
+        if 0 != len(metadata):
+            if metadata.has_key('ocr'):
+                status = 'finished'
+                finished += 1
+            else:
+                status = 'deriving'
+                deriving += 1
+            doc['collection'] = ";".join(metadata['collection'])
+            try:
+                doc['boxid'] = metadata['boxid']
+            except KeyError:
+                doc['boxid'] = 'unknown'
+            old_status = doc['status']
+            doc['status'] = status
+            if doc != res['_source']:
+                logger.debug("updated '%s' to %s" % (identifier, status))
+                items.append({'_type':res['_type'],'_index':res['_index'],'_id':res['_id'],'_op_type':'update','doc':doc})
     if not debugging:
         helpers.bulk(es, items)
-    logger.debug("found %d deriving entries, %d of them have finished" % (results['hits']['total'], len(items)))
+    logger.debug("found %d entries, %d of them are deriving, %d of them have finished" % (results['hits']['total'], deriving, finished))
 
 
 
