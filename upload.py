@@ -236,7 +236,7 @@ def process_all_logs(prefix, es):
 
 def update_deriving(es):
     logger.debug("looking for 'deriving' or 'scanned' entries")
-    query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": "_type:project AND (status:deriving OR status:scanned)"}}]}}}
+    query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": "_type:project AND (status:deriving OR status:scanned OR status:uploading)"}}]}}}
     results = es.search(index='archivecd-2017.05.06', body=query,size=10000)
     items = []
     deriving = 0
@@ -266,10 +266,8 @@ def update_deriving(es):
                 status = 'finished'
                 finished += 1            
             doc['collection'] = ";".join(metadata['collection'])
-            try:
-                doc['boxid'] = metadata['boxid']
-            except KeyError:
-                doc['boxid'] = 'unknown'
+            doc['boxid'] = metadata.get('boxid', 'unknown')
+            doc['collection-catalog-number'] = metadata.get('collection-catalog-number', 'unknown')
         doc['status'] = status
         if doc != res['_source']:
             logger.debug("updated '%s' to %s" % (identifier, status))
