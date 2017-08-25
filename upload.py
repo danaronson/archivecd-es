@@ -112,10 +112,6 @@ def add_metadata(groups, metadata, png_files):
         metadata['operator'] = groups[5][len("OPERATOR: "):].lower()
         return
 
-    if groups[2] == "ERROR":
-        metadata['error'] = True
-        return
-    
     match = re.search(rename_scan_pattern, groups[5])
     if match:
         png_files.add(match.group(1))
@@ -137,7 +133,7 @@ def add_metadata(groups, metadata, png_files):
             metadata['artists'] = result['artists']
             metadata['status'] = 'scanned'
         elif 'error' == finished_data['status']:
-            metadata['error'] = finished_data['error']
+            metadata['error_string'] = finished_data['error']
         return
     
     if groups[5].startswith(cddb_prefix):
@@ -176,7 +172,8 @@ def upload(es, file_name, data=None, length=-1):
         length = len(data)
 
     metadata = {'_type' : 'project', '_index' : index, '@timestamp' : file_dt, 'mac_id' : uploader_mac_address, 'log_file_name': file_name, 'log_length': length,
-                'CDDBid' : 'unknown', 'MusicBrainzid' : 'unknown', 'elapsed_time' : 0, 'identify' : 'unknown'}
+                'CDDBid' : 'unknown', 'MusicBrainzid' : 'unknown', 'elapsed_time' : 0, 'identify' : 'unknown',
+                'status' : 'unknown'}
 
     png_files = set()
     start_time = None
@@ -207,6 +204,7 @@ def upload(es, file_name, data=None, length=-1):
     if not debugging:
         helpers.bulk(es, items)
     logger.debug("done with bulk upload of %d items", len(items))
+    return metadata
 
 
 
