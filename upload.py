@@ -13,7 +13,7 @@ import urllib2
 import traceback
 import json
 import time
-from internetarchive import get_item
+from internetarchive import get_item, get_tasks
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 
 # read from same directory as this
@@ -241,30 +241,42 @@ def update_deriving(es):
     items = []
     deriving = 0
     finished = 0
+    uploading = 0
     for res in results['hits']['hits']:
-        doc = res['_source']
+        doc = res['_source'].copy()
         identifier = doc['itemid']
+        put_found = False
+        deriving_found = False
+        for task in get_tasks(identifier):
+            args = task.args
+            if 'derive' == args.get('next_cmd', ''):
+                deriving_found = True
+                break
+            elif 's3-put' == args.get('comment', ''):
+                put_found = True
+        if deriving_found:
+            status = 'deriving'
+            deriving += 1
+        elif put_found:
+            status = 'uploading'
+            uploading += 1
         metadata = get_item(identifier).metadata
         if 0 != len(metadata):
             if metadata.has_key('ocr'):
                 status = 'finished'
-                finished += 1
-            else:
-                status = 'deriving'
-                deriving += 1
+                finished += 1            
             doc['collection'] = ";".join(metadata['collection'])
             try:
                 doc['boxid'] = metadata['boxid']
             except KeyError:
                 doc['boxid'] = 'unknown'
-            old_status = doc['status']
-            doc['status'] = status
-            if doc != res['_source']:
-                logger.debug("updated '%s' to %s" % (identifier, status))
-                items.append({'_type':res['_type'],'_index':res['_index'],'_id':res['_id'],'_op_type':'update','doc':doc})
+        doc['status'] = status
+        if doc != res['_source']:
+            logger.debug("updated '%s' to %s" % (identifier, status))
+            items.append({'_type':res['_type'],'_index':res['_index'],'_id':res['_id'],'_op_type':'update','doc':doc})
     if not debugging:
         helpers.bulk(es, items)
-    logger.debug("found %d entries, %d of them are deriving, %d of them have finished" % (results['hits']['total'], deriving, finished))
+    logger.debug("found %d entries, %d of them are uploading %d of them are deriving, %d of them have finished" % (results['hits']['total'], uploading, deriving, finished))
 
 
 
