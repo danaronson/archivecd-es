@@ -124,8 +124,12 @@ def add_metadata(groups, metadata, png_files):
     match = re.search(project_finished_pattern, groups[5])
     if match:
         finished_data = eval(match.groups()[0])
-        metadata['status'] = finished_data['status']
-        if 'ok' == finished_data['status']:
+        status = finished_data['status']
+        # fix up spelling error
+        if 'canceled' == status:
+            status = 'cancelled'
+        metadata['status'] = status
+        if 'ok' == status:
             result = finished_data['result'][1]
             metadata['itemid'] = result['itemid']
             metadata['url'] = "https://archive.org/metadata/" + result['itemid']
