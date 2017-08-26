@@ -239,7 +239,7 @@ def process_all_logs(prefix, es):
     
 
 def update_deriving(es):
-    logger.debug("looking for 'deriving' or 'scanned' entries")
+    logger.debug("looking for 'deriving', 'uploading' or 'scanned' entries")
     query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": "_type:project AND (status:deriving OR status:scanned OR status:uploading)"}}]}}}
     results = es.search(index='archivecd-2017.05.06', body=query,size=10000)
     items = []
@@ -248,8 +248,9 @@ def update_deriving(es):
     uploading = 0
     for res in results['hits']['hits']:
         doc = res['_source'].copy()
+        status = doc['status']
         identifier = doc['itemid']
-        put_found = False
+        put_count = 0
         deriving_found = False
         for task in get_tasks(identifier):
             args = task.args
@@ -257,11 +258,11 @@ def update_deriving(es):
                 deriving_found = True
                 break
             elif 's3-put' == args.get('comment', ''):
-                put_found = True
+                put_count += 1
         if deriving_found:
             status = 'deriving'
             deriving += 1
-        elif put_found:
+        elif 1 < put_count:
             status = 'uploading'
             uploading += 1
         metadata = get_item(identifier).metadata
