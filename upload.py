@@ -238,6 +238,12 @@ def process_all_logs(prefix, es):
 
     
 
+def get_scandata_file(files):
+    for f in files:
+        if re.search('scandata json', f['format'], re.IGNORECASE):
+            return f['name']
+
+
 def update_deriving(es):
     logger.debug("looking for 'deriving', 'uploading' or 'scanned' entries")
     query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": "_type:project AND (status:deriving OR status:scanned OR status:uploading)"}}]}}}
@@ -265,7 +271,8 @@ def update_deriving(es):
         elif 1 < put_count:
             status = 'uploading'
             uploading += 1
-        metadata = get_item(identifier).metadata
+        item = get_item(identifier)
+        metadata = item.metadata
         if 0 != len(metadata):
             if metadata.has_key('ocr'):
                 status = 'finished'
@@ -273,6 +280,15 @@ def update_deriving(es):
             doc['collection'] = ";".join(metadata['collection'])
             doc['boxid'] = metadata.get('boxid', 'unknown')
             doc['collection-catalog-number'] = metadata.get('collection-catalog-number', 'unknown')
+            # also, let's add the scandata stuff
+            sd_file = get_scandata_file(item.files)
+            if sd_file:
+                data = item.download(sd_file, return_responses=True, retries=3)[0].json()
+                doc['discs'] = len(data['technical_metadata']['discs'])
+                tab_data = data['analytics']['tabs']
+                for key in tab_data:
+                    doc[key + '_time_focused'] = tab_data[key]['total_time_focused']
+            
         doc['status'] = status
         if doc != res['_source']:
             logger.debug("updated '%s' to %s" % (identifier, status))
