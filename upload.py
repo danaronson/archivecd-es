@@ -13,7 +13,7 @@ import urllib2
 import traceback
 import json
 import time
-from internetarchive import get_item, get_tasks
+import internetarchive
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 
 # read from same directory as this
@@ -260,7 +260,7 @@ def update_deriving(es):
         identifier = doc['itemid']
         put_count = 0
         deriving_found = False
-        for task in get_tasks(identifier):
+        for task in internetarchive.get_tasks(identifier):
             args = task.args
             if 'derive' == args.get('next_cmd', ''):
                 deriving_found = True
@@ -273,7 +273,7 @@ def update_deriving(es):
         elif 1 < put_count:
             status = 'uploading'
             uploading += 1
-        item = get_item(identifier)
+        item = internetarchive.get_item(identifier)
         metadata = item.metadata
         if 0 != len(metadata):
             if metadata.has_key('ocr'):
