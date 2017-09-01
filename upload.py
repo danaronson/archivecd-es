@@ -283,7 +283,7 @@ def update_deriving(es):
             # also, let's add the scandata stuff
             sd_file = get_scandata_file(item.files)
             if sd_file:
-                data = item.download(sd_file, return_responses=True, retries=3)[0].json()
+                data = internetarchive.File(item, sd_file).download(return_responses=True, retries=3).json()
                 doc['discs'] = len(data['technical_metadata']['discs'])
                 tab_data = data['analytics']['tabs']
                 for key in tab_data:
