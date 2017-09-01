@@ -129,6 +129,8 @@ def add_metadata(groups, metadata, png_files):
         if 'canceled' == status:
             status = 'cancelled'
         metadata['status'] = status
+        metadata['@timestamp'] = parser.parse(groups[0])
+        metadata['fixed_time'] = True
         if 'ok' == status:
             result = finished_data['result'][1]
             metadata['itemid'] = result['itemid']
