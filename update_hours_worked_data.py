@@ -152,7 +152,7 @@ def add_data_for_operators(es):
     for id, d_type, doc in map_over_data("_type:project AND _exists_:discs", es):
         key_for_hours_worked = json.dumps([doc['@timestamp'][0:10], doc['operator']])
         if hours_worked.has_key(key_for_hours_worked) and (not doc.get('added_to_hours_worked', False)):
-            projects_record_updated += 1
+            project_records_updated += 1
             doc['added_to_hours_worked'] = True
             data = hours_worked[key_for_hours_worked]
             data['total_discs'] = data.get('total_discs', 0) + doc['discs']

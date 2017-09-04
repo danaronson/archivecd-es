@@ -13,7 +13,7 @@ import urllib2
 import traceback
 import json
 import time
-import internetarchive
+import internetarchive 
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 
 # read from same directory as this
@@ -153,9 +153,26 @@ def add_metadata(groups, metadata, png_files):
 
                                    
     
+# using scrolling, map over a query
+def map_over_data(query, es, size=10000, source=True):
+    index = Config.get('es', 'index')
+    query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": query}}]}}}
+    logger.info("Querying ES for: '%s'" % query)
+    page = es.search(index=index, body=query,scroll='2m',size=size, _source=source)
+    reported_size =  page['hits']['total']
+    count = 0
+    while True:
+        if 0 == len(page['hits']['hits']):
+            break
+        for res in page['hits']['hits']:
+            yield res['_id'], res['_type'], res['_source']
+            count += 1
+        if count == reported_size:
+            break
+        page = es.scroll(scroll_id = page['_scroll_id'], scroll = '2m')
             
     
-def upload(es, file_name, data=None, length=-1):
+def upload(es, file_name, data=None, length=-1, already_checked_in_es=False):
     index = Config.get('es', 'index')
     items = []
     match = re.search(file_data_pattern, file_name)
@@ -164,10 +181,7 @@ def upload(es, file_name, data=None, length=-1):
 
     # we skip this if it is already in es (unless we are debugging, then we aren't going to upload anyway)
     if not debugging:
-        res = es.search(index=index, body={"query":{"bool":{"must":[{"match":{"@timestamp":file_dt}},
-                                                                {"match":{"mac_id":uploader_mac_address}}]}}})
-
-        if (0 != len(res['hits']['hits'])):
+        if already_checked_in_es and file_name in get_log_file_names_in_es(es):
             logger.info("already loaded '%s', skipping", file_name)
             return
 
@@ -215,16 +229,15 @@ def upload(es, file_name, data=None, length=-1):
 
 
 
+def get_log_file_names_in_es(es):
+    query = {'query': {'bool': {'must': [{'query_string': {'analyze_wildcard': True, 'query': '_type:log_line'}}]}}, 'aggs': {'1': {'terms': {'field': 'log_file_name.keyword', 'size': 100000}}}, 'size': 0}
+    index = Config.get('es', 'index')
+    page = es.search(index=index, body=query)
+    return  map(lambda b1: b1['key'], page['aggregations']['1']['buckets'])
+
 def process_all_logs(prefix, es):
     data = urllib2.urlopen(prefix).read()
-    log_file_names = []
-    scroll = []
-    if not debugging:
-        scroll = helpers.scan(es, index = Config.get('es', 'index'), doc_type="project", scroll='5m')
-        
-    for res in scroll:
-        log_file_names.append(res['_source']['log_file_name'])
-
+    log_file_names = get_log_file_names_in_es(es)
     for log_file_name in log_file_name_pattern.findall(data):
         url = prefix + log_file_name
         if log_file_name in log_file_names:
@@ -233,7 +246,7 @@ def process_all_logs(prefix, es):
             logger.debug("downloading and processing '%s'", url)
             response = urllib2.urlopen(url)
             try:
-                upload(es, log_file_name, response.read(), response.headers['content-length'])
+                upload(es, log_file_name, response.read(), response.headers['content-length'], already_checked_in_es=True)
             except:
                 logger.error("Unexpected error, while uploading '%s'", url)
                 raise
@@ -247,15 +260,16 @@ def get_scandata_file(files):
 
 
 def update_deriving(es):
+    index = Config.get('es', 'index')
     logger.debug("looking for 'deriving', 'uploading' or 'scanned' entries")
-    query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": "_type:project AND (status:deriving OR status:scanned OR status:uploading)"}}]}}}
-    results = es.search(index='archivecd-2017.05.06', body=query,size=10000)
     items = []
     deriving = 0
     finished = 0
     uploading = 0
-    for res in results['hits']['hits']:
-        doc = res['_source'].copy()
+    count = 0
+    for id, d_type, doc in map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)", es):
+        count += 1
+        doc_orig = doc.copy()
         status = doc['status']
         identifier = doc['itemid']
         put_count = 0
@@ -292,12 +306,12 @@ def update_deriving(es):
                     doc[key + '_time_focused'] = tab_data[key]['total_time_focused']
             
         doc['status'] = status
-        if doc != res['_source']:
+        if doc != doc_orig:
             logger.debug("updated '%s' to %s" % (identifier, status))
-            items.append({'_type':res['_type'],'_index':res['_index'],'_id':res['_id'],'_op_type':'update','doc':doc})
+            items.append({'_type':d_type,'_index':index,'_id':id,'_op_type':'update','doc':doc})
     if not debugging:
         helpers.bulk(es, items)
-    logger.debug("found %d entries, %d of them are uploading %d of them are deriving, %d of them have finished" % (results['hits']['total'], uploading, deriving, finished))
+    logger.debug("found %d entries, %d of them are uploading %d of them are deriving, %d of them have finished" % (count, uploading, deriving, finished))
 
 
 
