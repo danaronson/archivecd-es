@@ -157,6 +157,7 @@ def add_data_for_operators(es):
             data = hours_worked[key_for_hours_worked]
             data['total_discs'] = data.get('total_discs', 0) + doc['discs']
             data['total_projects'] = data.get('total_projects', 0) + 1
+            data['total_images'] = data.get('total_images', 0) + doc['image_count']
             items.append({'_type':'project','_index':index,'_id':id,'_op_type':'update','doc':doc})
             updated_keys.add(key_for_hours_worked)
     # now add the hours worked items
