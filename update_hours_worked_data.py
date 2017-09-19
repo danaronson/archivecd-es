@@ -173,7 +173,7 @@ def add_data_for_operators(es):
 # upload_new_hours gets the records in the hours_worked index and uploads the new ones
 # if the old ones have been modified, an error is thrown
 def upload_new_hours(es):
-    index = Config.get('es', 'index'),
+    index = Config.get('es', 'index')
     es_items = {}
     items = []
     spreadsheet_items = get_hours()
