@@ -169,38 +169,34 @@ def add_data_for_operators(es):
     helpers.bulk(es, items)
 
 
-def cleanup():
-    items = []
-    for id, doc in map_over_data('_type:project AND added_to_hours_worked:true'):
-        doc['added_to_hours_worked'] = False
-        items.append({'_type':'project','_index':'archivecd-2017.05.06','_id':id,'_op_type':'update','doc':doc})
-    for id, doc in map_over_data('_type:hours_worked AND _exists_:"total_discs"'):
-        doc['total_discs'] = 0
-        doc['total_projects'] = 0
-        items.append({'_type':'hours_worked','_index':'archivecd-2017.05.06','_id':id,'_op_type':'update','doc':doc})
-    return items
- 
     
 # upload_new_hours gets the records in the hours_worked index and uploads the new ones
 # if the old ones have been modified, an error is thrown
 def upload_new_hours(es):
-    es_items = []
+    index = Config.get('es', 'index'),
+    es_items = {}
     items = []
     spreadsheet_items = get_hours()
     for id, d_type, doc in map_over_data("_type:hours_worked", es):
-        es_items.append((doc['@timestamp'][0:10], doc['operator']))
-        
+        es_items[(doc['@timestamp'][0:10], doc['operator'])] = (doc, id)
     count = 0
+    updated = 0
     for key in spreadsheet_items.keys():
-        if key not in es_items:
+        (doc, id) = es_items.get(key, (False, False))
+        if not doc:
             count += 1
-            date, operator = key
+            (date, operator) = key
             items.append({'_type' : 'hours_worked',
-                          '_index' : Config.get('es', 'index'),
+                          '_index' : index,
                           '@timestamp' : parser.parse(date).date(),
                           'operator' : operator,
                           'hours' : spreadsheet_items[key]})
-    logger.info("%d new user records from spreadsheet uploaded to ES" % count)
+        elif doc['hours'] != spreadsheet_items[key]:
+            # update
+            updated += 1
+            doc['hours'] = spreadsheet_items[key]
+            items.append({'_type':'hours_worked','_index':index,'_id':id,'_op_type':'update','doc':doc})
+    logger.info("%d new user, %d updated records from spreadsheet uploaded to ES" % (count, updated))
     helpers.bulk(es, items)
             
 if __name__ == '__main__':
