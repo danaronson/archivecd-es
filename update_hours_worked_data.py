@@ -13,6 +13,7 @@ from apiclient import discovery
 from oauth2client.file import Storage
 from dateutil import parser
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
+import gapi
 import logging
 import ConfigParser
 
@@ -78,6 +79,28 @@ def get_es():
                          port=int(Config.get('es', 'port')), use_ssl=('True' == Config.get('es','use_ssl')),
                          url_prefix = Config.get('es', 'url_prefix'), serializer=JSONSerializerPython2())
 
+
+
+
+def get_machine_names():
+    mac_mapping = {}
+    credentials = Storage(Config.get('gapi', 'credential_file')).get()
+    http = credentials.authorize(httplib2.Http())
+    discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
+                    'version=v4')
+    service = discovery.build('sheets', 'v4', http=http,
+                              discoveryServiceUrl=discoveryUrl)
+    #
+    id = Config.get('machine_names', 'id')
+    result = service.spreadsheets().values().get(
+        spreadsheetId=id, range='Sheet1').execute()
+    values = result.get('values', [])
+    for row in values[1:]:
+        try:
+            mac_mapping[row[1].strip().replace(':','').lower()] = row[0]
+        except:
+            pass
+    return mac_mapping
 
 
 
@@ -175,7 +198,7 @@ def upload_new_hours(es):
     index = Config.get('es', 'index')
     es_items = {}
     items = []
-    spreadsheet_items = get_hours()
+    spreadsheet_items = gapi.Gapi(Config).get_hours()
     for id, d_type, doc in map_over_data("_type:hours_worked", es):
         es_items[(doc['@timestamp'][0:10], doc['operator'])] = (doc, id)
     count = 0
