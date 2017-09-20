@@ -15,6 +15,7 @@ import json
 import time
 import internetarchive 
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
+import gapi
 
 # read from same directory as this
 base_name = os.path.dirname(sys.argv[0])
@@ -31,6 +32,8 @@ if 0 == len(Config.read(config_file_name)):
     
 log_levels = {"CRITICAL":logging.CRITICAL,"ERROR":logging.ERROR,"WARNING":logging.WARNING,"INFO":logging.INFO,"DEBUG":logging.DEBUG,"NOTSET":logging.NOTSET}
 
+# get machine_names from spreadsheet
+machine_names = gapi.Gapi(Config).get_machine_names()
 logger = logging.getLogger(__name__)
 logger.setLevel(log_levels[Config.get('logging', 'level')])
 
@@ -196,6 +199,11 @@ def upload(es, file_name, data=None, length=-1, already_checked_in_es=False):
                 'CDDBid' : 'unknown', 'MusicBrainzid' : 'unknown', 'elapsed_time' : 0, 'identify' : 'unknown',
                 'status' : 'unknown'}
 
+    mac_id = uploader_mac_address.strip().replace(':','').lower()
+    try:
+        metadata['host_name'] = machine_names[mac_id]
+    except KeyError:
+        pass
     png_files = set()
     start_time = None
     for line in data.split('\n'):

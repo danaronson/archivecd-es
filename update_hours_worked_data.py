@@ -15,7 +15,6 @@ from dateutil import parser
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 import logging
 import ConfigParser
-from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 
 # read from same directory as this
 base_name = os.path.dirname(sys.argv[0])
@@ -84,15 +83,15 @@ def get_es():
 
 def get_hours():
     #credentials = Storage('/Users/dan/.credentials/sheets.googleapis.com-python-quickstart.json').get()
-    credentials = Storage(Config.get('spreadsheet', 'credential_file')).get()
+    credentials = Storage(Config.get('gapi', 'credential_file')).get()
     http = credentials.authorize(httplib2.Http())
     discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
                     'version=v4')
     service = discovery.build('sheets', 'v4', http=http,
                               discoveryServiceUrl=discoveryUrl)
     #
-    id = Config.get('spreadsheet', 'id')
-    range_name = Config.get('spreadsheet', 'range_name') 
+    id = Config.get('timesheet', 'id')
+    range_name = Config.get('timesheet', 'range_name') 
     result = service.spreadsheets().values().get(
         spreadsheetId=id, range=range_name).execute()
     values = result.get('values', [])
