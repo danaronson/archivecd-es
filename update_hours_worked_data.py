@@ -102,7 +102,7 @@ def get_hours():
     if not values:
         print('No data found.')
     else:
-        for row in values[3:]:
+        for row in values[2:]:
             operator = row[1].strip()
             if 0 != len(operator):
                 for index in range(len(row)- 2):
