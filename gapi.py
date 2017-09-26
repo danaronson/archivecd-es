@@ -1,29 +1,22 @@
 # routines for interfacing with google sheets
 
-import httplib2
-from apiclient import discovery
-from oauth2client.file import Storage
+import pygsheets
+from oauth2client.service_account import ServiceAccountCredentials
 from dateutil import parser
+
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+
 
 class Gapi:
     def __init__(self, Config):
         self.config = Config
-        credentials = Storage(Config.get('gapi', 'credential_file')).get()
-        http = credentials.authorize(httplib2.Http())
-        discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
-                        'version=v4')
-        service = discovery.build('sheets', 'v4', http=http,
-                                  discoveryServiceUrl=discoveryUrl)
-        self.spreadsheets = service.spreadsheets().values()
-        
+        self.gc = pygsheets.authorize(credentials=ServiceAccountCredentials.from_json_keyfile_name(Config.get('gapi','service_file'), SCOPES))
 
     def get_machine_names(self):
         mac_mapping = {}
         #
-        id = self.config.get('machine_names', 'id')
-        result = self.spreadsheets.get(spreadsheetId=id, range='Sheet1').execute()
-        values = result.get('values', [])
-        for row in values[1:]:
+        worksheet = self.gc.open_by_key(self.config.get('machine_names', 'id')).worksheet_by_title('Sheet1')
+        for row in worksheet.get_all_values(returnas='matrix'):
             try:
                 mac_mapping[row[1].strip().replace(':','').lower()] = row[0]
             except:
@@ -31,10 +24,8 @@ class Gapi:
         return mac_mapping
 
     def get_hours(self):
-        id = self.config.get('timesheet', 'id')
-        range_name = self.config.get('timesheet', 'range_name') 
-        result = self.spreadsheets.get(spreadsheetId=id, range=range_name).execute()
-        values = result.get('values', [])
+        worksheet = self.gc.open_by_key(self.config.get('timesheet', 'id')).worksheet_by_title(self.config.get('timesheet', 'range_name'))
+        values = worksheet.get_all_values(returnas='matrix')
         #
         items = {}
         records = {}
