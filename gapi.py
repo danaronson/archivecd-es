@@ -23,24 +23,28 @@ class Gapi:
                 pass
         return mac_mapping
 
+
+    # parse all hours worked entries for sheets(tabs) that do not have the word 'schedule' in the title
     def get_hours(self):
-        worksheet = self.gc.open_by_key(self.config.get('timesheet', 'id')).worksheet_by_title(self.config.get('timesheet', 'range_name'))
-        values = worksheet.get_all_values(returnas='matrix')
-        #
+        gsheet = self.gc.open_by_key(self.config.get('timesheet', 'id'))
         items = {}
         records = {}
-        if not values:
-            print('No data found.')
-        else:
-            for row in values[2:]:
-                operator = row[1].strip()
-                if 0 != len(operator):
-                    for index in range(len(row)- 2):
-                        date = values[0][index+2].strip()
-                        hours = row[index + 2].strip()
-                        if (0 != len(date)) and (0 != len(hours)):
-                            date = parser.parse(date)
-                            items[(str(date)[0:10], operator)] = float(hours)
+        for worksheet in gsheet.worksheets():
+            if -1 == worksheet.title.lower().find('schedule'):
+                values = worksheet.get_all_values(returnas='matrix')
+            #
+            if not values:
+                print('No data found.')
+            else:
+                for row in values[2:]:
+                    operator = row[1].strip()
+                    if 0 != len(operator):
+                        for index in range(len(row)- 2):
+                            date = values[0][index+2].strip()
+                            hours = row[index + 2].strip()
+                            if (0 != len(date)) and (0 != len(hours)):
+                                date = parser.parse(date)
+                                items[(str(date)[0:10], operator)] = float(hours)
         return items
 
 
