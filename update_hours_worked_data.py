@@ -77,7 +77,9 @@ class JSONSerializerPython2(serializer.JSONSerializer):
 def get_es():
     return Elasticsearch([Config.get('es', 'host')], 
                          port=int(Config.get('es', 'port')), use_ssl=('True' == Config.get('es','use_ssl')),
-                         url_prefix = Config.get('es', 'url_prefix'), serializer=JSONSerializerPython2())
+                         url_prefix = Config.get('es', 'url_prefix'), serializer=JSONSerializerPython2(),
+                         timeout=30)
+
 
 
 
