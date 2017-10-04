@@ -84,58 +84,6 @@ def get_es():
 
 
 
-def get_machine_names():
-    mac_mapping = {}
-    credentials = Storage(Config.get('gapi', 'credential_file')).get()
-    http = credentials.authorize(httplib2.Http())
-    discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
-                    'version=v4')
-    service = discovery.build('sheets', 'v4', http=http,
-                              discoveryServiceUrl=discoveryUrl)
-    #
-    id = Config.get('machine_names', 'id')
-    result = service.spreadsheets().values().get(
-        spreadsheetId=id, range='Sheet1').execute()
-    values = result.get('values', [])
-    for row in values[1:]:
-        try:
-            mac_mapping[row[1].strip().replace(':','').lower()] = row[0]
-        except:
-            pass
-    return mac_mapping
-
-
-
-def get_hours():
-    #credentials = Storage('/Users/dan/.credentials/sheets.googleapis.com-python-quickstart.json').get()
-    credentials = Storage(Config.get('gapi', 'credential_file')).get()
-    http = credentials.authorize(httplib2.Http())
-    discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
-                    'version=v4')
-    service = discovery.build('sheets', 'v4', http=http,
-                              discoveryServiceUrl=discoveryUrl)
-    #
-    id = Config.get('timesheet', 'id')
-    range_name = Config.get('timesheet', 'range_name') 
-    result = service.spreadsheets().values().get(
-        spreadsheetId=id, range=range_name).execute()
-    values = result.get('values', [])
-    #
-    items = {}
-    records = {}
-    if not values:
-        print('No data found.')
-    else:
-        for row in values[2:]:
-            operator = row[1].strip()
-            if 0 != len(operator):
-                for index in range(len(row)- 2):
-                    date = values[0][index+2].strip()
-                    hours = row[index + 2].strip()
-                    if (0 != len(date)) and (0 != len(hours)):
-                        date = parser.parse(date)
-                        items[(str(date)[0:10], operator)] = float(hours)
-    return items
 
 # using scrolling, map over a query
 def map_over_data(query, es, size=10000, source=True):
@@ -207,18 +155,20 @@ def upload_new_hours(es):
     updated = 0
     for key in spreadsheet_items.keys():
         (doc, id) = es_items.get(key, (False, False))
+        value = spreadsheet_items[key]
         if not doc:
             count += 1
             (date, operator) = key
-            items.append({'_type' : 'hours_worked',
+            item = {'_type' : 'hours_worked',
                           '_index' : index,
                           '@timestamp' : parser.parse(date).date(),
-                          'operator' : operator,
-                          'hours' : spreadsheet_items[key]})
-        elif doc['hours'] != spreadsheet_items[key]:
+                          'operator' : operator}
+            item.update(value)
+            items.append(value)
+        elif (doc['hours'] != value['hours']) or (doc.get('generic_operator_name','') != value.get('generic_operator_name','')):
             # update
             updated += 1
-            doc['hours'] = spreadsheet_items[key]
+            doc.update(value)
             items.append({'_type':'hours_worked','_index':index,'_id':id,'_op_type':'update','doc':doc})
     logger.info("%d new user, %d updated records from spreadsheet uploaded to ES" % (count, updated))
     helpers.bulk(es, items)

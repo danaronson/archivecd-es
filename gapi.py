@@ -38,13 +38,18 @@ class Gapi:
             else:
                 for row in values[2:]:
                     operator = row[1].strip()
+                    generic_operator_name = row[2].strip()
+                    data = {}
+                    if (0 != len(generic_operator_name)):
+                        data['generic_operator_name'] = generic_operator_name
                     if 0 != len(operator):
                         for index in range(len(row)- 2):
                             date = values[0][index+2].strip()
                             hours = row[index + 2].strip()
                             if (0 != len(date)) and (0 != len(hours)):
                                 date = parser.parse(date)
-                                items[(str(date)[0:10], operator)] = float(hours)
+                                data["hours"] = float(hours)
+                                items[(str(date)[0:10], operator)] = data.copy()
         return items
 
 
