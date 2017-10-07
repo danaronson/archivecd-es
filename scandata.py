@@ -2,7 +2,6 @@
 import sys
 import json
 import logging
-import pdb
 
 # TODO: Parse other import events (that do not relate to ripping):
 # - Time taken from review item to project finished (finalise done, presumably)
@@ -88,8 +87,8 @@ class ScanData():
                 if 'start_time' in state:
                     assert state['start_time'] < event_time, 'Events not chronological?'
     
-                    trach = state['track']
-    
+                    track = state['track']
+                    
                     # Any other event = and of previous rip
                     if track not in tracks:
                         tracks[track] = []
