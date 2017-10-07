@@ -49,7 +49,7 @@ class ArchiveCD():
         config_file_name = config_path + "/" + config_file
         if 0 == len(self.config.read(config_file_name)):
             raise IOError("Could not find config file: '%s'\n" % config_file_name)
-        self.logger = logging.getLogger(mod.__name__)
+        self.logger = logging.getLogger(__name__)
         self.logger.setLevel(ArchiveCD.LOG_LEVELS[self.config.get('logging', 'level')])
         # create console handler and set level to debug
         ch = logging.StreamHandler()
