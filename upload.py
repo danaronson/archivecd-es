@@ -305,6 +305,7 @@ def update_deriving(es):
             doc['collection'] = ";".join(metadata['collection'])
             doc['boxid'] = metadata.get('boxid', 'unknown')
             doc['collection-catalog-number'] = metadata.get('collection-catalog-number', 'unknown')
+            doc['scanning_center'] = metadata.get('scanningcenter', 'unknown')
             # also, let's add the scandata stuff
             sd_file = get_scandata_file(item.files)
             if sd_file:
