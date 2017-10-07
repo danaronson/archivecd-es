@@ -2,6 +2,7 @@
 import sys
 import json
 import logging
+import pdb
 
 # TODO: Parse other import events (that do not relate to ripping):
 # - Time taken from review item to project finished (finalise done, presumably)
@@ -107,6 +108,7 @@ class ScanData():
         tracks_l = sorted(tracks.items())
         self.logger.debug(tracks_l)
     
+        pdb.set_trace()
         run_buckets = {}
     
         for (track_no, track) in tracks_l:
@@ -121,7 +123,7 @@ class ScanData():
                 run_buckets[strategy] += time
 
         self.logger.debug(pformat(run_buckets))
-        return run_buckets
+        return (tracks_l, run_buckets)
     
     #        if event_msg == 'update':
     #            event_args['task_description']
