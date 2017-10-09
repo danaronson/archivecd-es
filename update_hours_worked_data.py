@@ -125,8 +125,8 @@ def add_data_for_operators(es):
         try:
             key_for_hours_worked = json.dumps([doc['@timestamp'][0:10], doc['operator']])
         except KeyError as err:
-            logger.error("missing 'operator' in ES id:%s" % id)
-            raise err
+            logger.warning("missing 'operator' in ES id:%s" % id)
+            continue
         if hours_worked.has_key(key_for_hours_worked) and (not doc.get('added_to_hours_worked', False)):
             project_records_updated += 1
             doc['added_to_hours_worked'] = True
