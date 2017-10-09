@@ -8,6 +8,7 @@ import sys
 import json
 import internetarchive
 import inspect
+import scandata
 import pdb
 
 # see https://github.com/elastic/elasticsearch-py/issues/374
@@ -38,7 +39,7 @@ class ArchiveCD():
 
     LOG_LEVELS = {"CRITICAL":logging.CRITICAL,"ERROR":logging.ERROR,"WARNING":logging.WARNING,"INFO":logging.INFO,"DEBUG":logging.DEBUG,"NOTSET":logging.NOTSET}
 
-    def __init__(self, config_file='config.txt'):
+    def __init__(self, config_file='config.txt', name=__name__):
         # read from same directory as this
         base_name = os.path.dirname(sys.argv[0])
         if '' == base_name:
@@ -49,7 +50,7 @@ class ArchiveCD():
         config_file_name = config_path + "/" + config_file
         if 0 == len(self.config.read(config_file_name)):
             raise IOError("Could not find config file: '%s'\n" % config_file_name)
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(name)
         self.logger.setLevel(ArchiveCD.LOG_LEVELS[self.config.get('logging', 'level')])
         # create console handler and set level to debug
         ch = logging.StreamHandler()
@@ -95,5 +96,21 @@ class ArchiveCD():
             page = self.es.scroll(scroll_id = page['_scroll_id'], scroll = '2m')
 
 
+    def get_rip_data_from_item(self, item):
+        sd_instance = scandata.ScanData(item=item,logger=self.logger)
+        try:
+            rip_info = sd_instance.get_main_rip_info()
+        except Exception as err:
+            self.logger.warning('%s %s while looking for rip info from %s' % (type(err).__name__, err, item.name))
+            return None
+        return rip_info
+
     def bulk(self, items):
         helpers.bulk(self.es, items)
+
+
+class Item():
+    def __init__(self, item_name):
+        self.name = item_name
+        self.item = internetarchive.get_item(item_name)
+                

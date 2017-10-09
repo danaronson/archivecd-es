@@ -2,7 +2,9 @@
 import sys
 import json
 import logging
-import pdb
+import re
+import internetarchive
+
 
 # TODO: Parse other import events (that do not relate to ripping):
 # - Time taken from review item to project finished (finalise done, presumably)
@@ -23,21 +25,23 @@ STATE_RIP_UNKNOWN = 0
 STATE_RIP_STARTED = 1
 STATE_RIP_FINISHED = 2
 
-logging.basicConfig(level=logging.WARNING)
 
 class ScanData():
 
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
-
-    def set_logger(self, logger):
-        self.logger = logger
-
-    def load_from_data(self, data):
-        self.events = data['analytics']['events']
-
-    def load_from_file(self, file_name):
-        self.load_from_data(json.load(open(file_name, 'r')))
+    def __init__(self, data=None, file=None, logger=None, item=None):
+        if item:
+            for f in item.item.files:
+                if re.search('scandata json', f['format'], re.IGNORECASE):
+                    self.data = internetarchive.File(item.item, f['name']).download(return_responses=True, retries=3).json()
+        elif data:
+            self.data = data
+        elif file:
+            self.data = json.load(open(file_name, 'r'))
+        if logger:
+            self.logger = logger
+        else:
+            logging.basicConfig(level=logging.WARNING)
+            self.logger = logging.getLogger(__name__)
 
 
     def get_rip_breakdown(self, discid):
@@ -108,7 +112,6 @@ class ScanData():
         tracks_l = sorted(tracks.items())
         self.logger.debug(tracks_l)
     
-        pdb.set_trace()
         run_buckets = {}
     
         for (track_no, track) in tracks_l:
@@ -133,6 +136,7 @@ class ScanData():
     
     
     def get_main_rip_info(self):
+        self.events = self.data['analytics']['events']
         state = STATE_UNKNOWN
         important_rip_events = []
     
