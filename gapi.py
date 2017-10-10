@@ -3,14 +3,18 @@
 import pygsheets
 from oauth2client.service_account import ServiceAccountCredentials
 from dateutil import parser
+import httplib2
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
 
 class Gapi:
     def __init__(self, Config):
+        # trying to fix timeouts:  https://github.com/nithinmurali/pygsheets/issues/84#issuecomment-307655891
+        http_client = httplib2.Http( timeout=50)
         self.config = Config
-        self.gc = pygsheets.authorize(credentials=ServiceAccountCredentials.from_json_keyfile_name(Config.get('gapi','service_file'), SCOPES))
+        self.gc = pygsheets.authorize(credentials=ServiceAccountCredentials.from_json_keyfile_name(Config.get('gapi','service_file'), SCOPES),
+                                      http_client=http_client,retries=3)
 
     def get_machine_names(self):
         mac_mapping = {}
