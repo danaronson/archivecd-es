@@ -168,7 +168,7 @@ def upload_new_hours(es):
                           '@timestamp' : parser.parse(date).date(),
                           'operator' : operator}
             item.update(value)
-            items.append(value)
+            items.append(item)
         elif (doc['hours'] != value['hours']) or (doc.get('generic_operator_name','') != value.get('generic_operator_name','')):
             # update
             updated += 1
