@@ -16,6 +16,7 @@ import time
 import internetarchive 
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 import gapi
+import iaweb
 
 # read from same directory as this
 base_name = os.path.dirname(sys.argv[0])
@@ -268,6 +269,28 @@ def get_scandata_file(files):
             return f['name']
 
 
+def update_all_curate_states(es):
+    index = Config.get('es', 'index')
+    item_curate_states = {}
+    ia = iaweb.IAWeb()
+    for curate_state in ['dark', 'freeze', "un-dark", "NULL"]:
+        items = ia.get_items({'w_collection' : 'acdc*',
+                              'w_curatestate' : curate_state})
+        for item in items:
+            item_curate_states[item.strip().lower()] = curate_state
+    items = []
+    for id, d_type, doc in map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)", es):
+        identifier = doc['itemid'].lower()
+        curate_state = item_curate_states.get(identifier, 'unknown')
+        if not doc.has_key('curate_state') or (doc['curate_state'] != curate_state):
+            doc['curate_state'] = curate_state
+            items.append({'_type':d_type,'_index':index,'_id':id,'_op_type':'update','doc':doc})
+    logger.debug('updated curate_state of %d items', len(items))
+    helpers.bulk(es, items)
+
+            
+
+
 def update_deriving(es):
     index = Config.get('es', 'index')
     logger.debug("looking for 'deriving', 'uploading' or 'scanned' entries")
@@ -330,8 +353,10 @@ def update_deriving(es):
 if __name__ == "__main__":
     # we fork with one the parent processing the log files and the child updating the derived entires
     if 0 == os.fork():
+        update_all_curate_states(get_es())
         update_deriving(get_es())
     else:
         process_all_logs(sys.argv[1], get_es())
+        update_all_curate_states()
         os.wait()
 
