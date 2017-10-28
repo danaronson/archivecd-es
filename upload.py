@@ -352,11 +352,11 @@ def update_deriving(es):
 # run that sucker    
 if __name__ == "__main__":
     # we fork with one the parent processing the log files and the child updating the derived entires
+    es = get_es()
     if 0 == os.fork():
-        update_all_curate_states(get_es())
-        update_deriving(get_es())
+        update_deriving(es)
+        update_all_curate_states(es)
     else:
-        process_all_logs(sys.argv[1], get_es())
-        update_all_curate_states()
+        process_all_logs(sys.argv[1], es)
         os.wait()
 
