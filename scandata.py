@@ -204,6 +204,32 @@ class ScanData():
         return data
     
     
+    def get_scan_bias(self, before_template = 'cd_face'):
+        last_rip_time = -1
+        last_scan_time = -1
+        template_name = ''
+        for event in self.data['analytics']['events']:
+            if ('rip' == event[0]) and ('complete' == event[1]):
+                last_rip_time = event[2]
+            elif 'scan' == event[0]:
+                if 'start' == event[1]:
+                    template_name = event[3]['template']
+                if 'complete' == event[1]:
+                    if before_template == template_name:
+                        break
+                    last_scan_time = event[2]
+        if -1 == last_scan_time:
+            total_rip_time = 0
+            for key, value in self.get_main_rip_info().iteritems():
+                for strategy, time in value[1].iteritems():
+                    total_rip_time += time
+            return -total_rip_time
+        else:
+            return last_scan_time - last_rip_time
 
-
+    def get_first_scan_template(self):
+        for event in self.data['analytics']['events']:
+            if 'scan' == event[0] and 'start' == event[1]:
+                return event[3]['template']
+        return 'Unknown'
 
