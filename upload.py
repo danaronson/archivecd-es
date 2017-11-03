@@ -18,6 +18,7 @@ from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 import gapi
 import iaweb
 import scandata
+import archivecd
 
 # read from same directory as this
 base_name = os.path.dirname(sys.argv[0])
@@ -314,8 +315,8 @@ def update_deriving(es):
         elif 1 < put_count:
             status = 'uploading'
             uploading += 1
-        item = internetarchive.get_item(identifier)
-        metadata = item.metadata
+        item = archivecd.Item(identifier)
+        metadata = item.item.metadata
         if 0 != len(metadata):
             if metadata.has_key('ocr'):
                 status = 'finished'
