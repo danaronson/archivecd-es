@@ -17,6 +17,7 @@ import internetarchive
 from elasticsearch import Elasticsearch, helpers, serializer, compat, exceptions
 import gapi
 import iaweb
+import scandata
 
 # read from same directory as this
 base_name = os.path.dirname(sys.argv[0])
@@ -263,12 +264,6 @@ def process_all_logs(prefix, es):
 
     
 
-def get_scandata_file(files):
-    for f in files:
-        if re.search('scandata json', f['format'], re.IGNORECASE):
-            return f['name']
-
-
 def update_all_curate_states(es):
     index = Config.get('es', 'index')
     item_curate_states = {}
@@ -330,9 +325,11 @@ def update_deriving(es):
             doc['collection-catalog-number'] = metadata.get('collection-catalog-number', 'unknown')
             doc['scanning_center'] = metadata.get('scanningcenter', 'unknown')
             # also, let's add the scandata stuff
-            sd_file = get_scandata_file(item.files)
-            if sd_file:
-                data = internetarchive.File(item, sd_file).download(return_responses=True, retries=3).json()
+            sd = scandata.ScanData(item = item)
+            if None != sd.data:
+                data = sd.data
+                doc['scan_wait_time'] = sd.get_scan_bias()
+                doc['first_template'] = sd.get_first_scan_template()
                 doc['discs'] = len(data['technical_metadata']['discs'])
                 tab_data = data['analytics']['tabs']
                 for key in tab_data:

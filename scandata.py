@@ -29,6 +29,7 @@ STATE_RIP_FINISHED = 2
 class ScanData():
 
     def __init__(self, data=None, file=None, logger=None, item=None):
+        self.data = None
         if item:
             for f in item.item.files:
                 if re.search('scandata json', f['format'], re.IGNORECASE):
