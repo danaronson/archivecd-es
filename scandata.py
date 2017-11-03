@@ -32,7 +32,7 @@ class ScanData():
         self.data = None
         if item:
             for f in item.item.files:
-                if re.search('scandata json', f['format'], re.IGNORECASE):
+                if (f['name'].lower() == 'scandata.json') or (re.search('scandata json', f['format'], re.IGNORECASE)):
                     self.data = internetarchive.File(item.item, f['name']).download(return_responses=True, retries=3).json()
         elif data:
             self.data = data
