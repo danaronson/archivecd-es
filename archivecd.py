@@ -89,7 +89,8 @@ class ArchiveCD():
             if 0 == len(page['hits']['hits']):
                 break
             for res in page['hits']['hits']:
-                yield res['_id'], res['_type'], res['_source']
+                source = res.get('_source', False)
+                yield res['_id'], res['_type'], source
                 count += 1
             if count == reported_size:
                 break

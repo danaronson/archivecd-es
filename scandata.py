@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import internetarchive
+import archivecd
 
 
 # TODO: Parse other import events (that do not relate to ripping):
@@ -28,16 +29,19 @@ STATE_RIP_FINISHED = 2
 
 class ScanData():
 
-    def __init__(self, data=None, file=None, logger=None, item=None):
+    def __init__(self, data=None, file=None, logger=None, item=None, name=None):
         self.data = None
-        if item:
-            for f in item.item.files:
-                if (f['name'].lower() == 'scandata.json') or (re.search('scandata json', f['format'], re.IGNORECASE)):
-                    self.data = internetarchive.File(item.item, f['name']).download(return_responses=True, retries=3).json()
-        elif data:
+        if data:
             self.data = data
         elif file:
             self.data = json.load(open(file_name, 'r'))
+        else:
+            if name:
+                item = archivecd.Item(name)
+            if item:
+                for f in item.item.files:
+                    if (f['name'].lower() == 'scandata.json') or (re.search('scandata json', f['format'], re.IGNORECASE)):
+                        self.data = internetarchive.File(item.item, f['name']).download(return_responses=True, retries=3).json()
         if logger:
             self.logger = logger
         else:
@@ -113,21 +117,7 @@ class ScanData():
         tracks_l = sorted(tracks.items())
         self.logger.debug(tracks_l)
     
-        run_buckets = {}
-    
-        for (track_no, track) in tracks_l:
-            for run in track:
-                self.logger.debug(run)
-                strategy = run['strategy']
-                if strategy not in run_buckets:
-                    run_buckets[strategy] = 0.
-    
-                time = run['time']
-    
-                run_buckets[strategy] += time
-
-        self.logger.debug(pformat(run_buckets))
-        return (tracks_l, run_buckets)
+        return tracks_l
     
     #        if event_msg == 'update':
     #            event_args['task_description']
@@ -233,4 +223,5 @@ class ScanData():
             if 'scan' == event[0] and 'start' == event[1]:
                 return event[3]['template']
         return 'Unknown'
+
 

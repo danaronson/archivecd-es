@@ -287,6 +287,21 @@ def update_all_curate_states(es):
             
 
 
+# get_items_for_trace_rip_speeds returns items to insert into elasticsearch for per track rip speeds and strategies
+def get_items_for_track_rip_speeds(doc, sd, index):
+    items = []
+    disc_num = 0
+    for disc_id, track_rip_speeds in sd.get_main_rip_info().iteritems():
+        disc_num += 1
+        for data in track_rip_speeds:
+            speed_dict = {'_type' : 'track_info', '_index' : index, '@timestamp' : doc['@timestamp'], 'itemid' : doc['itemid'], 'disc_id': disc_id, 'disc_num' : disc_num,
+                          'track_num' : data[0]}
+            for speed_data in data[1]:
+                speed_dict['strategy_' + speed_data['strategy'].lower()] = speed_data['time']
+            items.append(speed_dict)
+    return items
+
+
 def update_deriving(es):
     index = Config.get('es', 'index')
     logger.debug("looking for 'deriving', 'uploading' or 'scanned' entries")
@@ -321,20 +336,23 @@ def update_deriving(es):
             if metadata.has_key('ocr'):
                 status = 'finished'
                 finished += 1            
-            doc['collection'] = ";".join(metadata['collection'])
-            doc['boxid'] = metadata.get('boxid', 'unknown')
-            doc['collection-catalog-number'] = metadata.get('collection-catalog-number', 'unknown')
-            doc['scanning_center'] = metadata.get('scanningcenter', 'unknown')
-            # also, let's add the scandata stuff
-            sd = scandata.ScanData(item = item)
-            if None != sd.data:
-                data = sd.data
-                doc['scan_wait_time'] = sd.get_scan_bias()
-                doc['first_template'] = sd.get_first_scan_template()
-                doc['discs'] = len(data['technical_metadata']['discs'])
-                tab_data = data['analytics']['tabs']
-                for key in tab_data:
-                    doc[key + '_time_focused'] = tab_data[key]['total_time_focused']
+            if not doc.has_key('got_metadata'):
+                doc['got_metadata'] = True
+                doc['collection'] = ";".join(metadata['collection'])
+                doc['boxid'] = metadata.get('boxid', 'unknown')
+                doc['collection-catalog-number'] = metadata.get('collection-catalog-number', 'unknown')
+                doc['scanning_center'] = metadata.get('scanningcenter', 'unknown')
+                # also, let's add the scandata stuff
+                sd = scandata.ScanData(item = item)
+                if None != sd.data:
+                    data = sd.data
+                    doc['scan_wait_time'] = sd.get_scan_bias()
+                    doc['first_template'] = sd.get_first_scan_template()
+                    doc['discs'] = len(data['technical_metadata']['discs'])
+                    tab_data = data['analytics']['tabs']
+                    for key in tab_data:
+                        doc[key + '_time_focused'] = tab_data[key]['total_time_focused']
+                    items += get_items_for_track_rip_speeds(doc, sd)
             
         doc['status'] = status
         if doc != doc_orig:
