@@ -121,13 +121,13 @@ def add_data_for_operators(es):
     updated_keys = set()
     items = []
     project_records_updated = 0
-    for id, d_type, doc in map_over_data("_type:project AND _exists_:discs", es):
+    for id, d_type, doc in map_over_data('_type:project AND _exists_:discs AND !_exists_:"added_to_hours_worked" AND !status:duplicate', es):
         try:
             key_for_hours_worked = json.dumps([doc['@timestamp'][0:10], doc['operator']])
         except KeyError as err:
             logger.warning("missing 'operator' in ES id:%s" % id)
             continue
-        if hours_worked.has_key(key_for_hours_worked) and (not doc.get('added_to_hours_worked', False)):
+        if hours_worked.has_key(key_for_hours_worked):
             project_records_updated += 1
             doc['added_to_hours_worked'] = True
             data = hours_worked[key_for_hours_worked]

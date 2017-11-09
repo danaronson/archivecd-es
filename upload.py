@@ -20,86 +20,8 @@ import iaweb
 import scandata
 import archivecd
 
-# read from same directory as this
-base_name = os.path.dirname(sys.argv[0])
-if '' == base_name:
-    config_path = "."
-else:
-    config_path = base_name
-Config = ConfigParser.SafeConfigParser()
-
-config_file_name = config_path + "/config.txt"
-if 0 == len(Config.read(config_file_name)):
-    sys.stderr.write("Could not find config file: '%s'\n" % config_file_name)
-    sys.exit(-1)
-    
-log_levels = {"CRITICAL":logging.CRITICAL,"ERROR":logging.ERROR,"WARNING":logging.WARNING,"INFO":logging.INFO,"DEBUG":logging.DEBUG,"NOTSET":logging.NOTSET}
-
-# get machine_names from spreadsheet
-machine_names = gapi.Gapi(Config).get_machine_names()
-logger = logging.getLogger(__name__)
-logger.setLevel(log_levels[Config.get('logging', 'level')])
-
-# create console handler and set level to debug
-ch = logging.StreamHandler()
-
-# create console handler and set level to debug
-logging_file = Config.get('logging', 'file')
-if 'stdout' == logging_file:
-    ch = logging.StreamHandler()
-else:
-    ch = logging.FileHandler(logging_file)
-
-# create formatter
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-# add formatter to ch
-ch.setFormatter(formatter)
-
-# add ch to logger
-if 0 == len(logger.handlers):
-    logger.addHandler(ch)
 
 
-# we want to exit if another upload process is running
-lock_fd = open(config_path + "/lockfile", 'w+')
-try:
-    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except IOError as e:
-    logger.warning("Another Uploader is already running")
-    sys.exit(0)
-
-# see https://github.com/elastic/elasticsearch-py/issues/374
-class JSONSerializerPython2(serializer.JSONSerializer):
-    """Override elasticsearch library serializer to ensure it encodes utf characters during json dump.
-    See original at: https://github.com/elastic/elasticsearch-py/blob/master/elasticsearch/serializer.py#L42
-    A description of how ensure_ascii encodes unicode characters to ensure they can be sent across the wire
-    as ascii can be found here: https://docs.python.org/2/library/json.html#basic-usage
-    """
-    
-    def dumps(self, data):
-        # don't serialize strings
-        if isinstance(data, compat.string_types):
-            return data
-        try:
-            return json.dumps(data, default=self.default, ensure_ascii=True)
-        except (ValueError, TypeError) as e:
-            raise exceptions.SerializationError(data, e)
-
-
-
-def get_es():
-    return Elasticsearch([Config.get('es', 'host')], 
-                         port=int(Config.get('es', 'port')), use_ssl=('True' == Config.get('es','use_ssl')),
-                         url_prefix = Config.get('es', 'url_prefix'), serializer=JSONSerializerPython2(),
-                         timeout=30)
-    
-
-
-
-
-
-debugging = ('True' == Config.get('default', 'debug'))
 
 # the default line pattern for archivecd log lines
 pattern = re.compile("^(\d\d\d\d-\d\d-\d\d\s+\d\d:\d\d:\d\d,\d+)\s+([^\s]+\(.*\))\s+([^\s]+)\s+([^\s]+)\s+([^\s]+\.py)\s+(.*)$")
@@ -113,7 +35,7 @@ cddb_prefix = "CDDB disc id: "
 musicbrainz_prefix = "MusicBrainz disc id "
 
 # add_metadata addes information from the line to metadata fields, which will be written to ES
-def add_metadata(groups, metadata, png_files):
+def add_metadata(groups, metadata, png_files, item_ids):
     # add the operator
     if groups[5].startswith("OPERATOR: "):
         metadata['operator'] = groups[5][len("OPERATOR: "):].lower()
@@ -140,11 +62,17 @@ def add_metadata(groups, metadata, png_files):
         metadata['fixed_time'] = True
         if 'ok' == status:
             result = finished_data['result'][1]
+            item_id = result['itemid']
             metadata['itemid'] = result['itemid']
             metadata['url'] = "https://archive.org/metadata/" + result['itemid']
             metadata['title'] = result['title']
             metadata['artists'] = result['artists']
-            metadata['status'] = 'scanned'
+
+            # mark it a duplicate if it is already in item_ids
+            if item_id in item_ids:
+                metadata['status'] = 'duplicate'
+            else:
+                metadata['status'] = 'scanned'
         elif 'error' == finished_data['status']:
             metadata['error_string'] = finished_data['error']
         return
@@ -160,39 +88,27 @@ def add_metadata(groups, metadata, png_files):
 
                                    
     
-# using scrolling, map over a query
-def map_over_data(query, es, size=10000, source=True):
-    index = Config.get('es', 'index')
-    query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": query}}]}}}
-    logger.info("Querying ES for: '%s'" % query)
-    page = es.search(index=index, body=query,scroll='2m',size=size, _source=source)
-    reported_size =  page['hits']['total']
-    count = 0
-    while True:
-        if 0 == len(page['hits']['hits']):
-            break
-        for res in page['hits']['hits']:
-            yield res['_id'], res['_type'], res['_source']
-            count += 1
-        if count == reported_size:
-            break
-        page = es.scroll(scroll_id = page['_scroll_id'], scroll = '2m')
-            
-    
-def upload(es, file_name, data=None, length=-1, already_checked_in_es=False):
-    index = Config.get('es', 'index')
+def get_es_itemids(acd):
+    item_ids = set()
+    for id, d_type, doc in acd.map_over_data('_type:project', source=['itemid']):
+        item_id = doc.get('itemid', False)
+        if item_id:
+            item_ids.add(item_id)
+    return item_ids
+
+def upload(acd, file_name, item_ids, data=None, length=-1, already_checked_in_es=False):
+    index = acd.config.get('es', 'index')
     items = []
     match = re.search(file_data_pattern, file_name)
     (file_time_stamp, uploader_mac_address) = match.groups()
     file_dt = parser.parse(file_time_stamp)
 
-    # we skip this if it is already in es (unless we are debugging, then we aren't going to upload anyway)
-    if not debugging:
-        if already_checked_in_es and file_name in get_log_file_names_in_es(es):
-            logger.info("already loaded '%s', skipping", file_name)
-            return
+    # we skip this if it is already in es
+    if already_checked_in_es and file_name in get_log_file_names_in_es(acd):
+        acd.logger.info("already loaded '%s', skipping", file_name)
+        return
 
-    logger.debug("reading data from %s", file_name)
+    acd.logger.debug("reading data from %s", file_name)
     i = 0
     if not data:
         data = open(file_name).read()
@@ -210,7 +126,7 @@ def upload(es, file_name, data=None, length=-1, already_checked_in_es=False):
     png_files = set()
     start_time = None
     for line in data.split('\n'):
-        logger.debug("processing line %d", i)
+        acd.logger.debug("processing line %d", i)
         match = re.search(pattern, line)
         if match:
             groups = match.groups()
@@ -221,52 +137,50 @@ def upload(es, file_name, data=None, length=-1, already_checked_in_es=False):
                           'thread' : groups[1], 'log_level' : groups[2], 'module' : groups[3],
                           'file' : groups[4], 'message' : groups[5], 'line' : i,
                           'log_file_name' : file_name})
-            add_metadata(groups, metadata, png_files)
+            add_metadata(groups, metadata, png_files, item_ids)
         else:
             # if a line doesn't parse correctly then we assume that it is a text continuation of the message from the previous line
             items[-1]['message'] += line
-            logger.debug("continuation from line %d", items[-1]['line'])
+            acd.logger.debug("continuation from line %d", items[-1]['line'])
         i += 1
 
     metadata['elapsed_time'] = (timestamp - start_time).seconds
     metadata['image_count'] = len(png_files)
-    logger.debug("done reading data from %s", file_name)
+    acd.logger.debug("done reading data from %s", file_name)
+    if 'duplicate' == metadata['status']:
+        acd.logger.info('got duplicate, updating %s ' % metadata['itemid'])
     items.append(metadata)
-    logger.debug("bulk upload of %d items", len(items))
-    if not debugging:
-        helpers.bulk(es, items)
-    logger.debug("done with bulk upload of %d items", len(items))
+    acd.logger.debug("bulk upload of %d items", len(items))
+    acd.bulk(items)
+    acd.logger.debug("done with bulk upload of %d items", len(items))
     return metadata
 
 
 
 
-def get_log_file_names_in_es(es):
-    query = {'query': {'bool': {'must': [{'query_string': {'analyze_wildcard': True, 'query': '_type:log_line'}}]}}, 'aggs': {'1': {'terms': {'field': 'log_file_name.keyword', 'size': 100000}}}, 'size': 0}
-    index = Config.get('es', 'index')
-    page = es.search(index=index, body=query)
-    return  map(lambda b1: b1['key'], page['aggregations']['1']['buckets'])
+def get_log_file_names_in_es(acd):
+    return [doc['log_file_name'] for id, d_type, doc in acd.map_over_data('_type:project', source=['log_file_name'])]
 
-def process_all_logs(prefix, es):
+def process_all_logs(prefix, acd):
     data = urllib2.urlopen(prefix).read()
-    log_file_names = get_log_file_names_in_es(es)
+    log_file_names = get_log_file_names_in_es(acd)
     for log_file_name in log_file_name_pattern.findall(data):
         url = prefix + log_file_name
         if log_file_name in log_file_names:
-            logger.debug("skipping  '%s', already in index", url)
+            acd.logger.debug("skipping  '%s', already in index", url)
         else:
-            logger.debug("downloading and processing '%s'", url)
+            acd.logger.debug("downloading and processing '%s'", url)
             response = urllib2.urlopen(url)
             try:
-                upload(es, log_file_name, response.read(), response.headers['content-length'], already_checked_in_es=True)
+                upload(acd, log_file_name, get_es_itemids(acd), response.read(), response.headers['content-length'], already_checked_in_es=True)
             except:
-                logger.error("Unexpected error, while uploading '%s'", url)
+                acd.logger.error("Unexpected error, while uploading '%s'", url)
                 raise
 
     
 
-def update_all_curate_states(es):
-    index = Config.get('es', 'index')
+def update_all_curate_states(acd):
+    index = acd.config.get('es', 'index')
     item_curate_states = {}
     ia = iaweb.IAWeb()
     for curate_state in ['dark', 'freeze', "un-dark", "NULL"]:
@@ -275,14 +189,14 @@ def update_all_curate_states(es):
         for item in items:
             item_curate_states[item.strip().lower()] = curate_state
     items = []
-    for id, d_type, doc in map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)", es):
+    for id, d_type, doc in acd.map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)"):
         identifier = doc['itemid'].lower()
         curate_state = item_curate_states.get(identifier, 'unknown')
         if not doc.has_key('curate_state') or (doc['curate_state'] != curate_state):
             doc['curate_state'] = curate_state
             items.append({'_type':d_type,'_index':index,'_id':id,'_op_type':'update','doc':doc})
-    logger.debug('updated curate_state of %d items', len(items))
-    helpers.bulk(es, items)
+    acd.logger.debug('updated curate_state of %d items', len(items))
+    acd.bulk(items)
 
             
 
@@ -302,15 +216,15 @@ def get_items_for_track_rip_speeds(doc, sd, index):
     return items
 
 
-def update_deriving(es):
-    index = Config.get('es', 'index')
-    logger.debug("looking for 'deriving', 'uploading' or 'scanned' entries")
+def update_deriving(acd):
+    index = acd.config.get('es', 'index')
+    acd.logger.debug("looking for 'deriving', 'uploading' or 'scanned' entries")
     items = []
     deriving = 0
     finished = 0
     uploading = 0
     count = 0
-    for id, d_type, doc in map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)", es):
+    for id, d_type, doc in acd.map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)"):
         count += 1
         doc_orig = doc.copy()
         status = doc['status']
@@ -356,11 +270,10 @@ def update_deriving(es):
             
         doc['status'] = status
         if doc != doc_orig:
-            logger.debug("updated '%s' to %s" % (identifier, status))
+            acd.logger.debug("updated '%s' to %s" % (identifier, status))
             items.append({'_type':d_type,'_index':index,'_id':id,'_op_type':'update','doc':doc})
-    if not debugging:
-        helpers.bulk(es, items)
-    logger.debug("found %d entries, %d of them are uploading %d of them are deriving, %d of them have finished" % (count, uploading, deriving, finished))
+    acd.bulk(items)
+    acd.logger.debug("found %d entries, %d of them are uploading %d of them are deriving, %d of them have finished" % (count, uploading, deriving, finished))
 
 
 
@@ -368,11 +281,22 @@ def update_deriving(es):
 # run that sucker    
 if __name__ == "__main__":
     # we fork with one the parent processing the log files and the child updating the derived entires
-    es = get_es()
+    acd = archivecd.ArchiveCD(config_file = 'config.txt')
+
+    # we want to exit if another upload process is running
+    lock_fd = open(acd.config_path + "/lockfile", 'w+')
+    machine_names = gapi.Gapi(acd.config).get_machine_names()
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except IOError as e:
+        acd.logger.warning("Another Uploader is already running")
+        sys.exit(0)
+
     if 0 == os.fork():
-        update_deriving(es)
-        update_all_curate_states(es)
+        update_deriving(acd)
+        update_all_curate_states(acd)
+        pass
     else:
-        process_all_logs(sys.argv[1], es)
+        process_all_logs(sys.argv[1], acd)
         os.wait()
 

@@ -43,11 +43,11 @@ class ArchiveCD():
         # read from same directory as this
         base_name = os.path.dirname(sys.argv[0])
         if '' == base_name:
-            config_path = "."
+            self.config_path = "."
         else:
-            config_path = base_name
+            self.config_path = base_name
         self.config = ConfigParser.SafeConfigParser()
-        config_file_name = config_path + "/" + config_file
+        config_file_name = self.config_path + "/" + config_file
         if 0 == len(self.config.read(config_file_name)):
             raise IOError("Could not find config file: '%s'\n" % config_file_name)
         self.logger = logging.getLogger(name)
@@ -107,7 +107,7 @@ class ArchiveCD():
         return rip_info
 
     def bulk(self, items):
-        helpers.bulk(self.es, items)
+        return helpers.bulk(self.es, items)
 
 
 class Item():
