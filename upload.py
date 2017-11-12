@@ -266,7 +266,12 @@ def update_deriving(acd):
                     tab_data = data['analytics']['tabs']
                     for key in tab_data:
                         doc[key + '_time_focused'] = tab_data[key]['total_time_focused']
-                    items += get_items_for_track_rip_speeds(doc, sd)
+                    try:
+                        items += get_items_for_track_rip_speeds(doc, sd, index)
+                    except:
+                        acd.logger.error('Error "%s" while trying to get rip speeds for "%s"' % (sys.exc_info()[0], identifier))
+                        # if we are here that there was a problem, let's skip to the next project
+                        continue 
             
         doc['status'] = status
         if doc != doc_orig:

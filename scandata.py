@@ -212,8 +212,9 @@ class ScanData():
         if -1 == last_scan_time:
             total_rip_time = 0
             for key, value in self.get_main_rip_info().iteritems():
-                for strategy, time in value[1].iteritems():
-                    total_rip_time += time
+                for track_info in value:
+                    for items in track_info[1]:
+                        total_rip_time += items['time']
             return -total_rip_time
         else:
             return last_scan_time - last_rip_time

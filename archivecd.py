@@ -72,6 +72,8 @@ class ArchiveCD():
         if 0 == len(self.logger.handlers):
             self.logger.addHandler(ch)
 
+        self.debug = 'true' == self.config.get('default', 'debug').lower()
+
         self.es = Elasticsearch([self.config.get('es', 'host')], 
                          port=int(self.config.get('es', 'port')), use_ssl=('True' == self.config.get('es','use_ssl')),
                          url_prefix = self.config.get('es', 'url_prefix'), serializer=JSONSerializerPython2(),
@@ -107,7 +109,11 @@ class ArchiveCD():
         return rip_info
 
     def bulk(self, items):
-        return helpers.bulk(self.es, items)
+        if self.config.debug:
+            self.logger.warning('in debug mode, not uploading to es')
+            return []
+        else:
+            return helpers.bulk(self.es, items)
 
 
 class Item():
