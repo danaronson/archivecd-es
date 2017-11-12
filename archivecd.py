@@ -109,7 +109,7 @@ class ArchiveCD():
         return rip_info
 
     def bulk(self, items):
-        if self.config.debug:
+        if self.debug:
             self.logger.warning('in debug mode, not uploading to es')
             return []
         else:
