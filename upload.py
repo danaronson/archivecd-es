@@ -263,7 +263,7 @@ def update_es_doc(acd, es_id, d_type, doc, items, updates, index):
     doc['status'] = status
     if doc != doc_orig:
         acd.logger.debug("updated '%s' to %s" % (identifier, status))
-        items.append({'_type':d_type,'_index':index,'_id':id,'_op_type':'update','doc':doc})
+        items.append({'_type':d_type,'_index':index,'_id':es_id,'_op_type':'update','doc':doc})
     
 def update_deriving(acd):
     index = acd.config.get('es', 'index')
