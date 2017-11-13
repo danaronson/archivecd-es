@@ -216,69 +216,73 @@ def get_items_for_track_rip_speeds(doc, sd, index):
     return items
 
 
+def update_es_doc(acd, es_id, d_type, doc, items, updates, index):
+    updates['count'] += 1
+    doc_orig = doc.copy()
+    status = doc['status']
+    identifier = doc['itemid']
+    put_count = 0
+    deriving_found = False
+    for task in internetarchive.get_tasks(identifier):
+        args = task.args
+        if 'derive' == args.get('next_cmd', ''):
+            deriving_found = True
+            break
+        elif 's3-put' == args.get('comment', ''):
+            put_count += 1
+    if deriving_found:
+        status = 'deriving'
+        updates['deriving'] += 1
+    elif 1 < put_count:
+        status = 'uploading'
+        updates['uploading'] += 1
+    item = archivecd.Item(identifier)
+    metadata = item.item.metadata
+    if 0 != len(metadata):
+        if metadata.has_key('ocr'):
+            status = 'finished'
+            updates['finished'] += 1            
+        if not doc.has_key('got_metadata'):
+            doc['got_metadata'] = True
+            doc['collection'] = ";".join(metadata['collection'])
+            doc['boxid'] = metadata.get('boxid', 'unknown')
+            doc['collection-catalog-number'] = metadata.get('collection-catalog-number', 'unknown')
+            doc['scanning_center'] = metadata.get('scanningcenter', 'unknown')
+            # also, let's add the scandata stuff
+            sd = scandata.ScanData(item = item)
+            if None != sd.data:
+                data = sd.data
+                doc['scan_wait_time'] = sd.get_scan_bias()
+                doc['first_template'] = sd.get_first_scan_template()
+                doc['discs'] = len(data['technical_metadata']['discs'])
+                tab_data = data['analytics']['tabs']
+                for key in tab_data:
+                    doc[key + '_time_focused'] = tab_data[key]['total_time_focused']
+                items += get_items_for_track_rip_speeds(doc, sd, index)
+            
+    doc['status'] = status
+    if doc != doc_orig:
+        acd.logger.debug("updated '%s' to %s" % (identifier, status))
+        items.append({'_type':d_type,'_index':index,'_id':id,'_op_type':'update','doc':doc})
+    
 def update_deriving(acd):
     index = acd.config.get('es', 'index')
     acd.logger.debug("looking for 'deriving', 'uploading' or 'scanned' entries")
     items = []
-    deriving = 0
-    finished = 0
-    uploading = 0
-    count = 0
-    for id, d_type, doc in acd.map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)"):
-        count += 1
-        doc_orig = doc.copy()
-        status = doc['status']
-        identifier = doc['itemid']
-        put_count = 0
-        deriving_found = False
-        for task in internetarchive.get_tasks(identifier):
-            args = task.args
-            if 'derive' == args.get('next_cmd', ''):
-                deriving_found = True
-                break
-            elif 's3-put' == args.get('comment', ''):
-                put_count += 1
-        if deriving_found:
-            status = 'deriving'
-            deriving += 1
-        elif 1 < put_count:
-            status = 'uploading'
-            uploading += 1
-        item = archivecd.Item(identifier)
-        metadata = item.item.metadata
-        if 0 != len(metadata):
-            if metadata.has_key('ocr'):
-                status = 'finished'
-                finished += 1            
-            if not doc.has_key('got_metadata'):
-                doc['got_metadata'] = True
-                doc['collection'] = ";".join(metadata['collection'])
-                doc['boxid'] = metadata.get('boxid', 'unknown')
-                doc['collection-catalog-number'] = metadata.get('collection-catalog-number', 'unknown')
-                doc['scanning_center'] = metadata.get('scanningcenter', 'unknown')
-                # also, let's add the scandata stuff
-                sd = scandata.ScanData(item = item)
-                if None != sd.data:
-                    data = sd.data
-                    doc['scan_wait_time'] = sd.get_scan_bias()
-                    doc['first_template'] = sd.get_first_scan_template()
-                    doc['discs'] = len(data['technical_metadata']['discs'])
-                    tab_data = data['analytics']['tabs']
-                    for key in tab_data:
-                        doc[key + '_time_focused'] = tab_data[key]['total_time_focused']
-                    try:
-                        items += get_items_for_track_rip_speeds(doc, sd, index)
-                    except:
-                        acd.logger.error('Error "%s" while trying to get rip speeds for "%s"' % (sys.exc_info()[0], identifier))
-                        # if we are here that there was a problem, let's skip to the next project
-                        continue 
-            
-        doc['status'] = status
-        if doc != doc_orig:
-            acd.logger.debug("updated '%s' to %s" % (identifier, status))
-            items.append({'_type':d_type,'_index':index,'_id':id,'_op_type':'update','doc':doc})
+    updates = {'deriving' : 0, 'finished' : 0, 'uploading' : 0,
+               'count' : 0}
+    for es_id, d_type, doc in acd.map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)"):
+        try:
+            update_es_doc(acd, es_id, d_type, doc, items, updates, index)
+        except:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            acd.logger.error('Error while trying to get rip speeds for "%s"' % (doc['itemid']))
+            for line in traceback.format_exception(exc_type, exc_value,
+                                                   exc_traceback):
+                acd.logger.error(line.strip())
     acd.bulk(items)
-    acd.logger.debug("found %d entries, %d of them are uploading %d of them are deriving, %d of them have finished" % (count, uploading, deriving, finished))
+    acd.logger.debug("found %d entries, %d of them are uploading %d of them are deriving, %d of them have finished" %
+                     (updates['count'], updates['uploading'], updates['deriving'], updates['finished']))
 
 
 
