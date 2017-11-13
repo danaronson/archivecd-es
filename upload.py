@@ -249,7 +249,7 @@ def update_es_doc(acd, es_id, d_type, doc, items, updates, index):
             doc['collection-catalog-number'] = metadata.get('collection-catalog-number', 'unknown')
             doc['scanning_center'] = metadata.get('scanningcenter', 'unknown')
             # also, let's add the scandata stuff
-            sd = scandata.ScanData(item = item)
+            sd = scandata.ScanData(item = item, logger = acd.logger)
             if None != sd.data:
                 data = sd.data
                 doc['scan_wait_time'] = sd.get_scan_bias()
