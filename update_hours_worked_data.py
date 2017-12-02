@@ -152,7 +152,7 @@ def upload_new_hours(es):
     index = Config.get('es', 'index')
     es_items = {}
     items = []
-    spreadsheet_items = gapi.Gapi(Config).get_hours()
+    spreadsheet_items = gapi.Gapi(Config, logger=logger).get_hours()
     for id, d_type, doc in map_over_data("_type:hours_worked", es):
         es_items[(doc['@timestamp'][0:10], doc['operator'])] = (doc, id)
     count = 0

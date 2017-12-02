@@ -4,17 +4,21 @@ import pygsheets
 from oauth2client.service_account import ServiceAccountCredentials
 from dateutil import parser
 import httplib2
+import logging
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
 
 class Gapi:
-    def __init__(self, Config):
+    def __init__(self, Config, logger=None):
         # trying to fix timeouts:  https://github.com/nithinmurali/pygsheets/issues/84#issuecomment-307655891
         http_client = httplib2.Http( timeout=50)
         self.config = Config
         self.gc = pygsheets.authorize(credentials=ServiceAccountCredentials.from_json_keyfile_name(Config.get('gapi','service_file'), SCOPES),
                                       http_client=http_client,retries=3)
+        self.logger = logger
+        if not self.logger:
+            self.logger = logging.getLogger(__name__)
 
     def get_machine_names(self):
         mac_mapping = {}
@@ -51,7 +55,11 @@ class Gapi:
                             date = values[0][index+2].strip()
                             hours = row[index + 2].strip()
                             if (0 != len(date)) and (0 != len(hours)):
-                                date = parser.parse(date)
+                                try:
+                                    date = parser.parse(date)
+                                except:
+                                    self.logger.error('Parsing error at %s:(%d, %d)' % (worksheet, 0, index + 2))
+                                    raise
                                 data["hours"] = float(hours)
                                 items[(str(date)[0:10], operator)] = data.copy()
         return items
