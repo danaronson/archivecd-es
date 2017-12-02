@@ -58,7 +58,7 @@ class Gapi:
                                 try:
                                     date = parser.parse(date)
                                 except:
-                                    self.logger.error('Parsing error at %s:(%d, %d)' % (worksheet, 0, index + 2))
+                                    self.logger.error('Parsing error at %s:(%d, %d), string is "%s"' % (worksheet, 0, index + 2, date))
                                     raise
                                 data["hours"] = float(hours)
                                 items[(str(date)[0:10], operator)] = data.copy()
