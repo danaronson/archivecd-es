@@ -9,6 +9,7 @@ import sys
 import os
 import pdb
 from dateutil import parser
+import datetime
 import urllib2
 import traceback
 import json
@@ -162,6 +163,7 @@ def get_log_file_names_in_es(acd):
     return [doc['log_file_name'] for id, d_type, doc in acd.map_over_data('_type:project', source=['log_file_name'])]
 
 def process_all_logs(prefix, acd):
+    acd.logger.info('processing logs from: %s' % prefix)
     data = urllib2.urlopen(prefix).read()
     log_file_names = get_log_file_names_in_es(acd)
     for log_file_name in log_file_name_pattern.findall(data):
@@ -306,6 +308,23 @@ if __name__ == "__main__":
         update_all_curate_states(acd)
         pass
     else:
-        process_all_logs(sys.argv[1], acd)
+        items_to_process = ['archivecd-logs']
+
+        first = datetime.datetime(2018, 1, 1)
+        now = datetime.datetime.now()
+
+        year = first.year
+
+        while datetime.datetime(year, 1, 1) < now:
+            for month in range(1,13):
+                log_date = datetime.datetime(year, month, 1)
+                item_name = log_date.strftime('archivecd-logs-%Y-%m')
+                items_to_process.append(item_name)
+
+            year += 1
+
+        for item in items_to_process:
+            if internetarchive.get_item(item).exists:
+                process_all_logs('https://archive.org/download/%s/' % item, acd)
         os.wait()
 
