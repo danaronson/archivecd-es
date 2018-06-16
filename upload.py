@@ -73,6 +73,7 @@ def add_metadata(groups, metadata, png_files, item_ids):
             if item_id in item_ids:
                 metadata['status'] = 'duplicate'
             else:
+                item_ids.add(item_id)
                 metadata['status'] = 'scanned'
         elif 'error' == finished_data['status']:
             metadata['error_string'] = finished_data['error']
@@ -165,7 +166,7 @@ def get_log_file_names_in_es(acd):
         ret.add(doc['log_file_name'])
     return ret
 
-def process_all_logs(prefix, acd):
+def process_all_logs(prefix, acd, item_ids):
     acd.logger.info('processing logs from: %s' % prefix)
     data = urllib2.urlopen(prefix).read()
     log_file_names = get_log_file_names_in_es(acd)
@@ -177,7 +178,7 @@ def process_all_logs(prefix, acd):
             acd.logger.debug("downloading and processing '%s'", url)
             response = urllib2.urlopen(url)
             try:
-                upload(acd, log_file_name, get_es_itemids(acd), response.read(), response.headers['content-length'], already_checked_in_es=True)
+                upload(acd, log_file_name, item_ids, response.read(), response.headers['content-length'], already_checked_in_es=True)
             except:
                 acd.logger.error("Unexpected error, while uploading '%s'", url)
                 raise
@@ -326,8 +327,9 @@ if __name__ == "__main__":
 
             year += 1
 
+        item_ids = get_es_itemids(acd)
         for item in items_to_process:
             if internetarchive.get_item(item).exists:
-                process_all_logs('https://archive.org/download/%s/' % item, acd)
+                process_all_logs('https://archive.org/download/%s/' % item, acd, item_ids)
         os.wait()
 
