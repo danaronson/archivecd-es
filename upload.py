@@ -160,7 +160,10 @@ def upload(acd, file_name, item_ids, data=None, length=-1, already_checked_in_es
 
 
 def get_log_file_names_in_es(acd):
-    return [doc['log_file_name'] for id, d_type, doc in acd.map_over_data('_type:project', source=['log_file_name'])]
+    ret = set()
+    for id, d_type, doc in acd.map_over_data('_type:project', source=['log_file_name']):
+        ret.add(doc['log_file_name'])
+    return ret
 
 def process_all_logs(prefix, acd):
     acd.logger.info('processing logs from: %s' % prefix)
