@@ -180,7 +180,7 @@ def process_all_logs(prefix, acd, item_ids):
             try:
                 upload(acd, log_file_name, item_ids, response.read(), response.headers['content-length'], already_checked_in_es=True)
             except:
-                acd.logger.error("Unexpected error, while uploading '%s'", url)
+                acd.logger.exception("Unexpected error, while uploading '%s'", url)
                 raise
 
     
@@ -195,14 +195,17 @@ def update_all_curate_states(acd):
         for item in items:
             item_curate_states[item.strip().lower()] = curate_state
     items = []
-    for id, d_type, doc in acd.map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)"):
-        identifier = doc['itemid'].lower()
-        curate_state = item_curate_states.get(identifier, 'unknown')
-        if not doc.has_key('curate_state') or (doc['curate_state'] != curate_state):
-            doc['curate_state'] = curate_state
-            items.append({'_type':d_type,'_index':index,'_id':id,'_op_type':'update','doc':doc})
-    acd.logger.debug('updated curate_state of %d items', len(items))
-    acd.bulk(items)
+    try:
+        for id, d_type, doc in acd.map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)"):
+            identifier = doc['itemid'].lower()
+            curate_state = item_curate_states.get(identifier, 'unknown')
+            if not doc.has_key('curate_state') or (doc['curate_state'] != curate_state):
+                doc['curate_state'] = curate_state
+                items.append({'_type':d_type,'_index':index,'_id':id,'_op_type':'update','doc':doc})
+    finally:
+        # if there are any exceptions, we want to update them anyway
+        acd.logger.debug('updated curate_state of %d items', len(items))
+        acd.bulk(items)
 
             
 
@@ -277,18 +280,16 @@ def update_deriving(acd):
     items = []
     updates = {'deriving' : 0, 'finished' : 0, 'uploading' : 0,
                'count' : 0}
-    for es_id, d_type, doc in acd.map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)"):
-        try:
-            update_es_doc(acd, es_id, d_type, doc, items, updates, index)
-        except:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            acd.logger.error('Error while trying to get rip speeds for "%s"' % (doc['itemid']))
-            for line in traceback.format_exception(exc_type, exc_value,
-                                                   exc_traceback):
-                acd.logger.error(line.strip())
-    acd.bulk(items)
-    acd.logger.debug("found %d entries, %d of them are uploading %d of them are deriving, %d of them have finished" %
-                     (updates['count'], updates['uploading'], updates['deriving'], updates['finished']))
+    try:
+        for es_id, d_type, doc in acd.map_over_data("_type:project AND (status:deriving OR status:scanned OR status:uploading)"):
+            try:
+                update_es_doc(acd, es_id, d_type, doc, items, updates, index)
+            except:
+                acd.logger.exception('Error while trying to update doc for "%s"' % (doc['itemid']))
+    finally:
+        acd.bulk(items)
+        acd.logger.debug("found %d entries, %d of them are uploading %d of them are deriving, %d of them have finished" %
+                         (updates['count'], updates['uploading'], updates['deriving'], updates['finished']))
 
 
 
@@ -312,9 +313,15 @@ if __name__ == "__main__":
         update_all_curate_states(acd)
         pass
     else:
-        items_to_process = ['archivecd-logs']
+        #items_to_process = ['archivecd-logs']
 
-        first = datetime.datetime(2018, 1, 1)
+        # so we just do the most recent ones
+        items_to_process = []
+
+        # this should be config driven
+        # changed to 5 to make sure we just work on the recent stuff
+
+        first = datetime.datetime(2018, 5, 1)
         now = datetime.datetime.now()
 
         year = first.year
@@ -322,12 +329,14 @@ if __name__ == "__main__":
         while datetime.datetime(year, 1, 1) < now:
             for month in range(1,13):
                 log_date = datetime.datetime(year, month, 1)
-                item_name = log_date.strftime('archivecd-logs-%Y-%m')
-                items_to_process.append(item_name)
+                if log_date >= first:
+                    item_name = log_date.strftime('archivecd-logs-%Y-%m')
+                    items_to_process.append(item_name)
 
             year += 1
 
         item_ids = get_es_itemids(acd)
+        items_to_process.reverse()
         for item in items_to_process:
             if internetarchive.get_item(item).exists:
                 process_all_logs('https://archive.org/download/%s/' % item, acd, item_ids)

@@ -63,7 +63,7 @@ class ArchiveCD():
             ch = logging.FileHandler(logging_file)
 
         # create formatter
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(process)d - %(levelname)s - %(message)s')
 
         # add formatter to ch
         ch.setFormatter(formatter)
@@ -77,14 +77,19 @@ class ArchiveCD():
         self.es = Elasticsearch([self.config.get('es', 'host')], 
                          port=int(self.config.get('es', 'port')), use_ssl=('True' == self.config.get('es','use_ssl')),
                          url_prefix = self.config.get('es', 'url_prefix'), serializer=JSONSerializerPython2(),
-                         timeout=30)
+                         timeout=100)
 
     # using scrolling, map over a query
-    def map_over_data(self, query, size=10000, source=True):
+    def map_over_data(self, query, size=1000, source=True):
         index = self.config.get('es', 'index')
         query = {  "query": {    "bool": {      "must": [        {          "query_string": {            "analyze_wildcard": True,            "query": query}}]}}}
         self.logger.debug("Querying ES for: '%s'" % query)
-        page = self.es.search(index=index, body=query,scroll='2m',size=size, _source=source)
+        try:
+            page = self.es.search(index=index, body=query,scroll='1h',size=size, _source=source)
+        except Exception as e:
+            self.logger.exception("got exception while trying to search index: %s with query '%s'" % (index, query))
+            raise e
+        self.logger.debug('got results');
         reported_size =  page['hits']['total']
         count = 0
         while True:
@@ -96,7 +101,14 @@ class ArchiveCD():
                 count += 1
             if count == reported_size:
                 break
-            page = self.es.scroll(scroll_id = page['_scroll_id'], scroll = '2m')
+            self.logger.debug("scrolling search results: '%s'" % query)
+            try:
+                page = self.es.scroll(scroll_id = page['_scroll_id'], scroll = '1h')
+            except Exception as e:
+                self.logger.exception("got exception while trying to scroll index: %s with query '%s'" % (index, query))
+                raise e
+            finally:
+                self.logger.debug("got scroll results: '%s'" % query)
 
 
     def get_rip_data_from_item(self, item):
@@ -113,7 +125,7 @@ class ArchiveCD():
             self.logger.warning('in debug mode, not uploading to es')
             return []
         else:
-            return helpers.bulk(self.es, items)
+            return helpers.bulk(self.es, items, chunk_size=5000)
 
 
 class Item():
